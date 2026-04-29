@@ -626,6 +626,9 @@ async function cloudSaveRecord(rec) {
 }
 async function cloudLoad() {
   if (!_user) return;
+  // Always start clean — wipe localStorage so stale data never bleeds through
+  S.clients = []; S.records = [];
+  try { localStorage.removeItem('aap4'); } catch(e) {}
   try {
     const [{data:cd,error:ce},{data:rd,error:re}] = await Promise.all([
       _SB.from('clients').select('*'),
@@ -634,10 +637,13 @@ async function cloudLoad() {
     if (ce) throw ce; if (re) throw re;
     S.clients = (cd||[]).map(c=>({id:c.id,display:c.display,legal:c.legal,color:c.color,markets:c.markets||[]}));
     S.records = (rd||[]).map(r=>({id:r.id,clientId:r.client_id,market:r.market,period:r.period,type:r.type,filename:r.filename,data:r.data,uploaded:r.uploaded,parsed:r.parsed}));
-    saveState();
     renderSidebar();
     renderHome();
-  } catch(e) { console.error('Cloud load failed:', e.message); }
+  } catch(e) {
+    console.error('Cloud load failed:', e.message);
+    renderSidebar();
+    renderHome();
+  }
 }
 function loadState() { /* data loaded from Supabase after sign-in */ }
 
@@ -3288,7 +3294,7 @@ async function executeDeleteAll() {
     const {error}=await _SB.from('records').delete().neq('id','');
     if(error) throw error;
     S.records=[];
-    saveState();
+    try { localStorage.removeItem('aap4'); } catch(e) {}
     renderSidebar();
     renderHome();
     closeDeleteModal();
