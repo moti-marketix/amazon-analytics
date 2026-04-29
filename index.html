@@ -888,139 +888,169 @@ function parseTransactionCSV(text) {
   const lines = text.split('\n');
   const sq = s => s.trim().replace(/^"|"$/g, '');
 
-  // Detect format by scanning first 15 lines for the header row
-  // All formats use settlement/Abrechnungs format — just different languages
-  // Find the header row: contains date/time column + type/Typ column + many columns
-  let hi = -1;
-  for (let i = 0; i < Math.min(15, lines.length); i++) {
-    const l = lines[i].toLowerCase();
-    // Header row has many quoted columns and contains date-related + type-related content
-    if ((l.includes('"date/time"') || l.includes('"datum/uhrzeit"')) &&
-        (l.includes('"type"') || l.includes('"typ"'))) {
-      hi = i; break;
+  // ── DETECT FORMAT ────────────────────────────────────────────────────────
+  // Simplified format: starts with Date, Transaction Status/type columns (no settlement id)
+  // Settlement format: has settlement id + type/typ columns
+  const firstLine = lines[0].toLowerCase();
+  const isSimple = firstLine.includes('"transaction type"') || firstLine.includes('"transaction status"');
+
+  if (isSimple) {
+    // ── SIMPLIFIED FORMAT (CA, UK, DE, FR, IT, ES simplified reports) ──────
+    const hdrs = [];
+    let inQ=false, cell='';
+    for (const ch of lines[0]+',') {
+      if (ch==='"'){inQ=!inQ;}
+      else if (ch===','&&!inQ){hdrs.push(sq(cell).toLowerCase());cell='';}
+      else cell+=ch;
     }
-    // Also catch lines with settlement id
-    if (l.includes('settlement id') || l.includes('abrechnungsnummer')) {
-      if (l.includes('"type"') || l.includes('"typ"') || l.split(',').length > 10) {
-        hi = i; break;
+
+    const rows = [];
+    for (let i=1; i<lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      const cols=[]; let q=false, c='';
+      for (const ch of lines[i]+',') {
+        if(ch==='"'){q=!q;}
+        else if(ch===','&&!q){cols.push(sq(c));c='';}
+        else c+=ch;
       }
+      if (cols.length < 5) continue;
+      const row = {}; hdrs.forEach((h,idx)=>row[h]=cols[idx]||'');
+      if (row['date']) rows.push(row);
     }
+    if (!rows.length) return {error:'No data rows',_rows:0};
+
+    // Simplified format always uses standard decimal notation (dot = decimal)
+    const totalCol = hdrs.find(h=>h.startsWith('total ('))||'total';
+
+    const n = s => {
+      let v = (s||'').replace(/"/g,'').trim();
+      if (!v||v==='-') return 0;
+      v = v.replace(/,/g,'');  // remove thousands commas only
+      const f=parseFloat(v); return isNaN(f)?0:f;
+    };
+
+    const gt = r => (r['transaction type']||'').trim().toLowerCase();
+    const gd = r => (r['product details']||'').trim().toLowerCase();
+
+    const isOrd = r => gt(r)==='order payment';
+    const isRef = r => gt(r)==='refund';
+    const isAdj = r => ['inventory reimbursement','adjustment'].includes(gt(r));
+    const isSvc = r => gt(r)==='service fees';
+    const isAdv = r => isSvc(r) && gd(r).includes('advertising');
+
+    const fba_sales    = rows.filter(isOrd).reduce((s,r)=>s+n(r['total product charges']),0);
+    const refunds      = rows.filter(isRef).reduce((s,r)=>s+n(r['total product charges'])+n(r['amazon fees']),0);
+    const shipping     = rows.filter(isOrd).reduce((s,r)=>s+n(r['total promotional rebates']||'0'),0);
+    const inv_credit   = rows.filter(isAdj).reduce((s,r)=>s+n(r[totalCol]||r['other']||'0'),0);
+    const selling_fees = rows.filter(r=>isOrd(r)||isRef(r)).reduce((s,r)=>s+n(r['amazon fees']),0);
+    const inbound      = rows.filter(r=>isSvc(r)&&gd(r).includes('inbound')).reduce((s,r)=>s+n(r[totalCol]),0);
+    const adv          = rows.filter(isAdv).reduce((s,r)=>s+n(r[totalCol]),0);
+    const service_fees = rows.filter(r=>isSvc(r)&&!isAdv(r)).reduce((s,r)=>s+n(r[totalCol]),0);
+    const income       = fba_sales+refunds+shipping+inv_credit;
+    const expenses     = selling_fees+inbound+adv+service_fees;
+    const tacos        = fba_sales?Math.round(Math.abs(adv)/fba_sales*10000)/100:0;
+
+    return {income,expenses,fba_sales,refunds,inv_credit,vine:0,shipping,liquidation:0,
+            selling_fees,tx_fees:0,inbound,adv,adjustments:0,service_fees,refund_admin:0,
+            liq_fees:0,bank:0,charges:0,tacos,transfers:0,
+            _rows:rows.length,_source:'transaction_csv',_parse_score:19,_parse_total:19,_auto_parsed:true};
   }
 
-  if (hi === -1) return { error: 'Header row not found', _rows: 0 };
+  // ── SETTLEMENT FORMAT (USA + EU settlement reports) ──────────────────────
+  // Find header row: contains date/time or datum/uhrzeit + type or typ
+  let hi = -1;
+  for (let i=0; i<Math.min(15,lines.length); i++) {
+    const l = lines[i].toLowerCase();
+    if ((l.includes('"date/time"')||l.includes('"datum/uhrzeit"')) &&
+        (l.includes('"type"')||l.includes('"typ"'))) { hi=i; break; }
+    if ((l.includes('settlement id')||l.includes('abrechnungsnummer')) && l.split(',').length>10) { hi=i; break; }
+  }
+  if (hi===-1) return {error:'Header row not found',_rows:0};
 
-  // Parse headers
-  const hdrs = [];
-  let inQ = false, cell = '';
-  for (const ch of lines[hi] + ',') {
-    if (ch === '"') { inQ = !inQ; }
-    else if (ch === ',' && !inQ) { hdrs.push(sq(cell).toLowerCase()); cell = ''; }
-    else cell += ch;
+  const hdrs2=[]; let inQ=false, cell='';
+  for (const ch of lines[hi]+',') {
+    if(ch==='"'){inQ=!inQ;}
+    else if(ch===','&&!inQ){hdrs2.push(sq(cell).toLowerCase());cell='';}
+    else cell+=ch;
   }
 
-  // Identify key column indices (handle all languages)
-  const ci = name => hdrs.findIndex(h => h === name);
-  const typeCol  = ci('type')  >= 0 ? ci('type')  : ci('typ');
-  const descCol  = ci('description') >= 0 ? ci('description') : ci('beschreibung');
-  const totalCol = ci('total') >= 0 ? ci('total') : hdrs.findIndex(h => h === 'gesamt');
+  const isEuro2 = lines.slice(0,3).some(l=>l.toLowerCase().includes('euro')||l.toLowerCase().includes('alle beträge'));
 
-  // Sales/fees columns — try English first, then German
-  const salesCol   = ci('product sales') >= 0 ? ci('product sales') : hdrs.findIndex(h => h.includes('umsätze') || h === 'umsatz');
-  const sfCol      = ci('selling fees') >= 0 ? ci('selling fees') : hdrs.findIndex(h => h.includes('verkaufsgebühren'));
-  const fbaCol     = ci('fba fees') >= 0 ? ci('fba fees') : hdrs.findIndex(h => h.includes('gebühren zu versand'));
-  const otxCol     = ci('other transaction fees') >= 0 ? ci('other transaction fees') : hdrs.findIndex(h => h.includes('andere transaktionsgebühren'));
-  const otherCol   = ci('other') >= 0 ? ci('other') : hdrs.findIndex(h => h === 'andere');
-  const shipCol    = ci('shipping credits') >= 0 ? ci('shipping credits') : hdrs.findIndex(h => h.includes('gutschrift für versandkosten'));
-  const vineCol    = ci('promotional rebates') >= 0 ? ci('promotional rebates') : hdrs.findIndex(h => h.includes('rabatte aus werbeaktionen'));
+  const ci = name => hdrs2.findIndex(h=>h===name);
+  const typeCol  = ci('type')>=0  ? ci('type')  : ci('typ');
+  const descCol  = ci('description')>=0 ? ci('description') : ci('beschreibung');
+  const totalCol2= ci('total')>=0 ? ci('total') : hdrs2.findIndex(h=>h==='gesamt');
+  const salesCol = ci('product sales')>=0 ? ci('product sales') : hdrs2.findIndex(h=>h.includes('umsätze')||h==='umsatz');
+  const sfCol    = ci('selling fees')>=0 ? ci('selling fees') : hdrs2.findIndex(h=>h.includes('verkaufsgebühren'));
+  const fbaCol   = ci('fba fees')>=0 ? ci('fba fees') : hdrs2.findIndex(h=>h.includes('gebühren zu versand'));
+  const otxCol   = ci('other transaction fees');
+  const otherCol = ci('other')>=0 ? ci('other') : hdrs2.findIndex(h=>h==='andere');
+  const shipCol  = ci('shipping credits')>=0 ? ci('shipping credits') : hdrs2.findIndex(h=>h.includes('gutschrift'));
+  const vineCol  = ci('promotional rebates')>=0 ? ci('promotional rebates') : hdrs2.findIndex(h=>h.includes('rabatte'));
 
-  // Detect if European number format (comma as decimal)
-  const isEuro = lines.slice(0, 3).some(l => l.includes('Euro') || l.includes('GBP') || l.toLowerCase().includes('alle beträge'));
-
-  // Parse number — handle both US (1,234.56) and EU (1.234,56)
-  const n = s => {
-    let v = (s || '').replace(/"/g, '').trim();
-    if (!v || v === '-') return 0;
-    if (isEuro) {
-      // EU: dots = thousands, comma = decimal
-      v = v.replace(/\./g, '').replace(',', '.');
-    } else {
-      v = v.replace(/,/g, '');
+  const rows2=[];
+  for (let i=hi+1;i<lines.length;i++) {
+    const line=lines[i]; if(!line.trim()) continue;
+    const cols=[]; let q=false, c='';
+    for (const ch of line+',') {
+      if(ch==='"'){q=!q;} else if(ch===','&&!q){cols.push(sq(c));c='';} else c+=ch;
     }
-    const f = parseFloat(v);
-    return isNaN(f) ? 0 : f;
+    if(cols.length<10) continue;
+    const row={}; hdrs2.forEach((h,idx)=>row[h]=cols[idx]||'');
+    const first=(cols[0]||'').trim();
+    if(first&&(/\d{4}/.test(first)||/\d{1,2}[./]\d{1,2}/.test(first))) rows2.push(row);
+  }
+  if(!rows2.length) return {error:'No data rows found',_rows:0};
+
+  const n2 = s => {
+    let v=(s||'').replace(/"/g,'').trim();
+    if(!v||v==='-') return 0;
+    if(isEuro2){v=v.replace(/\./g,'').replace(',','.');}else{v=v.replace(/,/g,'');}
+    const f=parseFloat(v); return isNaN(f)?0:f;
   };
+  const getType = r => (hdrs2[typeCol]?r[hdrs2[typeCol]]||'':'').trim().toLowerCase();
+  const getDesc = r => (hdrs2[descCol]?r[hdrs2[descCol]]||'':'').trim().toLowerCase();
+  const getCol  = (r,idx) => idx>=0&&hdrs2[idx]?n2(r[hdrs2[idx]]):0;
 
-  // Parse all data rows
-  const rows = [];
-  for (let i = hi + 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line.trim()) continue;
-    const cols = [];
-    let q = false, c = '';
-    for (const ch of line + ',') {
-      if (ch === '"') { q = !q; }
-      else if (ch === ',' && !q) { cols.push(sq(c)); c = ''; }
-      else c += ch;
-    }
-    if (cols.length < 10) continue;
-    const row = {};
-    hdrs.forEach((h, idx) => row[h] = cols[idx] || '');
-    // Accept row if first col looks like a date/time
-    const first = (cols[0] || '').trim();
-    if (first && (first.match(/\d{4}/) || first.match(/\d{1,2}[.\/]\d{1,2}/))) rows.push(row);
-  }
+  const ORD=['order','bestellung'];
+  const REF=['refund','erstattung'];
+  const ADJ=['adjustment','anpassung'];
+  const TRF=['transfer','übertrag'];
+  const SVC=['service fee','servicegebühr'];
+  const INV=['fba inventory fee','versand durch amazon lagergebühr'];
+  const LIQ=['liquidations','liquidationen'];
+  const ADV_DESCS=['cost of advertising','werbekosten'];
 
-  if (!rows.length) return { error: 'No data rows found', _rows: 0 };
+  const isType=(r,types)=>types.includes(getType(r));
+  const isAdv2 =r=>isType(r,SVC)&&ADV_DESCS.some(d=>getDesc(r).includes(d));
+  const isSvc2 =r=>isType(r,SVC)&&!ADV_DESCS.some(d=>getDesc(r).includes(d));
+  const sum=fn=>rows2.reduce((s,r)=>s+fn(r),0);
 
-  const getType = r => (hdrs[typeCol] ? (r[hdrs[typeCol]] || '') : '').trim();
-  const getDesc = r => (hdrs[descCol] ? (r[hdrs[descCol]] || '') : '').trim().toLowerCase();
-  const getCol  = (r, idx) => idx >= 0 && hdrs[idx] ? n(r[hdrs[idx]]) : 0;
+  const fba_sales2   = sum(r=>isType(r,ORD)?getCol(r,salesCol):0);
+  const refunds2     = sum(r=>isType(r,REF)?getCol(r,salesCol)+getCol(r,sfCol)+getCol(r,fbaCol):0);
+  const shipping2    = sum(r=>getCol(r,shipCol));
+  const vine2        = sum(r=>getCol(r,vineCol));
+  const liq2         = sum(r=>isType(r,LIQ)?getCol(r,salesCol):0);
+  const inv_credit2  = sum(r=>isType(r,ADJ)?getCol(r,totalCol2):0);
+  const sf2          = sum(r=>isType(r,ORD)||isType(r,REF)?getCol(r,sfCol):0);
+  const tf2          = sum(r=>isType(r,ORD)||isType(r,REF)?getCol(r,fbaCol):0);
+  const ib2          = sum(r=>isType(r,INV)?getCol(r,otherCol):0);
+  const adv2         = sum(r=>isAdv2(r)?getCol(r,totalCol2):0);
+  const sv2          = sum(r=>isSvc2(r)?getCol(r,totalCol2):0);
+  const lf2          = sum(r=>isType(r,LIQ)?getCol(r,sfCol):0);
+  const ra2          = sum(r=>isType(r,REF)?getCol(r,otxCol):0);
+  const bk2          = Math.abs(sum(r=>isType(r,TRF)?getCol(r,otherCol):0));
+  const ch2          = -Math.abs(sum(r=>isType(r,['debt'])?getCol(r,totalCol2):0));
+  const income2      = fba_sales2+refunds2+shipping2+vine2+liq2+inv_credit2;
+  const expenses2    = sf2+tf2+ib2+adv2+sv2+lf2+ra2;
+  const tacos2       = fba_sales2?Math.round(Math.abs(adv2)/fba_sales2*10000)/100:0;
 
-  // Type matchers — English and German
-  const ORDER_TYPES    = ['order', 'bestellung'];
-  const REFUND_TYPES   = ['refund', 'erstattung'];
-  const ADJ_TYPES      = ['adjustment', 'anpassung'];
-  const TRANSFER_TYPES = ['transfer', 'übertrag'];
-  const SVC_TYPES      = ['service fee', 'servicegebühr'];
-  const FBA_INV_TYPES  = ['fba inventory fee', 'versand durch amazon lagergebühr'];
-  const LIQ_TYPES      = ['liquidations', 'liquidationen'];
-  const DEBT_TYPES     = ['debt'];
-  // Ad spend descriptions (case-insensitive)
-  const ADV_DESCS      = ['cost of advertising', 'werbekosten'];
-
-  const isType = (r, types) => types.includes(getType(r).toLowerCase());
-  const isAdv  = r => isType(r, SVC_TYPES) && ADV_DESCS.some(d => getDesc(r).includes(d));
-  const isSvc  = r => isType(r, SVC_TYPES) && !ADV_DESCS.some(d => getDesc(r).includes(d));
-
-  const sum = fn => rows.reduce((s, r) => s + fn(r), 0);
-
-  const fba_sales    = sum(r => isType(r, ORDER_TYPES)  ? getCol(r, salesCol) : 0);
-  const refunds      = sum(r => isType(r, REFUND_TYPES) ? getCol(r, salesCol) + getCol(r, sfCol) + getCol(r, fbaCol) : 0);
-  const shipping     = sum(r => getCol(r, shipCol));
-  const vine         = sum(r => getCol(r, vineCol));
-  const liquidation  = sum(r => isType(r, LIQ_TYPES)   ? getCol(r, salesCol) : 0);
-  const inv_credit   = sum(r => isType(r, ADJ_TYPES)   ? getCol(r, totalCol) : 0);
-  const selling_fees = sum(r => (isType(r, ORDER_TYPES) || isType(r, REFUND_TYPES)) ? getCol(r, sfCol) : 0);
-  const tx_fees      = sum(r => (isType(r, ORDER_TYPES) || isType(r, REFUND_TYPES)) ? getCol(r, fbaCol) : 0);
-  const inbound      = sum(r => isType(r, FBA_INV_TYPES) ? getCol(r, otherCol) : 0);
-  const adv          = sum(r => isAdv(r)  ? getCol(r, totalCol) : 0);
-  const service_fees = sum(r => isSvc(r)  ? getCol(r, totalCol) : 0);
-  const liq_fees     = sum(r => isType(r, LIQ_TYPES)   ? getCol(r, sfCol) : 0);
-  const refund_admin = sum(r => isType(r, REFUND_TYPES) ? getCol(r, otxCol) : 0);
-  const bank         = Math.abs(sum(r => isType(r, TRANSFER_TYPES) ? getCol(r, otherCol) : 0));
-  const charges      = -Math.abs(sum(r => isType(r, DEBT_TYPES) ? getCol(r, totalCol) : 0));
-
-  const income   = fba_sales + refunds + shipping + vine + liquidation + inv_credit;
-  const expenses = selling_fees + tx_fees + inbound + adv + service_fees + liq_fees + refund_admin;
-  const tacos    = fba_sales ? Math.round(Math.abs(adv) / fba_sales * 10000) / 100 : 0;
-
-  return {
-    income, expenses, fba_sales, refunds, inv_credit, vine, shipping, liquidation,
-    selling_fees, tx_fees, inbound, adv, adjustments: 0, service_fees, refund_admin,
-    liq_fees, bank, charges, tacos, transfers: -bank + charges,
-    _rows: rows.length, _source: 'transaction_csv',
-    _parse_score: 19, _parse_total: 19, _auto_parsed: true
-  };
+  return {income:income2,expenses:expenses2,fba_sales:fba_sales2,refunds:refunds2,
+          inv_credit:inv_credit2,vine:vine2,shipping:shipping2,liquidation:liq2,
+          selling_fees:sf2,tx_fees:tf2,inbound:ib2,adv:adv2,adjustments:0,service_fees:sv2,
+          refund_admin:ra2,liq_fees:lf2,bank:bk2,charges:ch2,tacos:tacos2,
+          transfers:-bk2+ch2,_rows:rows2.length,_source:'transaction_csv',
+          _parse_score:19,_parse_total:19,_auto_parsed:true};
 }
 
 function csvLine(line) {
@@ -2733,11 +2763,6 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
       <div class="kpi-sub">${unitsGrowth!==null?`<span class="${unitsGrowth>=0?'yoy-up':'yoy-down'}">${unitsGrowth>=0?'▲':'▼'} ${Math.abs(unitsGrowth).toFixed(1)}% YoY</span>`:'—'}</div>
     </div>
     ${txn26.length?`
-    <div class="kpi-card ${margin>15?'green':margin>5?'amber':'red'}">
-      <div class="kpi-label">Net Income <span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">FBA sales + refunds + reimbursements. From Transaction CSV. Not same as Ordered Sales due to timing.</span></span></div>
-      <div class="kpi-value">${fs$(totIncome)}</div>
-      <div class="kpi-sub">Expenses: ${fs$(totExpenses)}</div>
-    </div>
     <div class="kpi-card red">
       <div class="kpi-label">Ad Spend <span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Total advertising spend charged by Amazon. From Transaction CSV Cost of Advertising rows.</span></span></div>
       <div class="kpi-value" style="color:var(--red)">${totAdv?fs$(totAdv):'—'}</div>
