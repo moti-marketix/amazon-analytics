@@ -225,23 +225,41 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
 <body>
 
 <div id="loginOverlay" style="position:fixed;inset:0;background:#0f172a;display:flex;align-items:center;justify-content:center;z-index:99999;">
-  <div style="background:#1e293b;border-radius:16px;padding:40px;width:100%;max-width:380px;box-shadow:0 25px 50px rgba(0,0,0,.5);">
+  <div style="background:#1e293b;border-radius:16px;padding:40px;width:100%;max-width:400px;box-shadow:0 25px 50px rgba(0,0,0,.5);">
     <div style="text-align:center;margin-bottom:28px;">
-      <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:48px;height:48px;margin-bottom:12px;display:block;margin-left:auto;margin-right:auto;">
+      <svg viewBox="0 0 48 48" fill="none" style="width:48px;height:48px;margin:0 auto 12px;display:block;">
         <rect width="48" height="48" rx="12" fill="#7c3aed"/>
         <path d="M12 34L20 16l8 12 5-7 8 13" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      <div style="color:#f8fafc;font-size:20px;font-weight:700;">Marketix Reports</div>
-      <div style="color:#94a3b8;font-size:13px;margin-top:4px;">Enter your password to continue</div>
+      <div style="color:#f8fafc;font-size:22px;font-weight:700;">Marketix Reports</div>
+      <div style="color:#94a3b8;font-size:13px;margin-top:4px;">Sign in to your account</div>
     </div>
-    <input type="password" id="mxrPwInput" placeholder="Password"
-      style="width:100%;box-sizing:border-box;padding:12px 16px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-size:15px;outline:none;"
-      onkeydown="if(event.key==='Enter')mxrLogin()">
-    <button onclick="mxrLogin()"
-      style="width:100%;margin-top:12px;padding:12px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-size:15px;font-weight:600;cursor:pointer;">
-      Sign In
-    </button>
-    <div id="mxrErr" style="color:#f87171;font-size:12px;text-align:center;margin-top:10px;min-height:18px;"></div>
+    <div id="vLogin">
+      <input type="email" id="inEmail" placeholder="Email address" onkeydown="if(event.key==='Enter')document.getElementById('inPw').focus()"
+        style="width:100%;box-sizing:border-box;padding:12px 16px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-size:14px;outline:none;margin-bottom:10px;">
+      <input type="password" id="inPw" placeholder="Password" onkeydown="if(event.key==='Enter')doSignIn()"
+        style="width:100%;box-sizing:border-box;padding:12px 16px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-size:14px;outline:none;">
+      <button onclick="doSignIn()" id="btnSignIn"
+        style="width:100%;margin-top:12px;padding:13px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-size:15px;font-weight:600;cursor:pointer;">
+        Sign In
+      </button>
+      <div style="text-align:center;margin-top:12px;">
+        <span style="color:#94a3b8;font-size:12px;cursor:pointer;text-decoration:underline;" onclick="showForgotPw()">Forgot password?</span>
+      </div>
+    </div>
+    <div id="vForgot" style="display:none;">
+      <div style="color:#94a3b8;font-size:13px;margin-bottom:12px;">Enter your email and we will send a password reset link.</div>
+      <input type="email" id="inResetEmail" placeholder="Email address"
+        style="width:100%;box-sizing:border-box;padding:12px 16px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-size:14px;outline:none;">
+      <button onclick="doResetPw()"
+        style="width:100%;margin-top:12px;padding:13px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-size:15px;font-weight:600;cursor:pointer;">
+        Send Reset Link
+      </button>
+      <div style="text-align:center;margin-top:12px;">
+        <span style="color:#94a3b8;font-size:12px;cursor:pointer;text-decoration:underline;" onclick="showSignIn()">Back to sign in</span>
+      </div>
+    </div>
+    <div id="authMsg" style="font-size:12px;text-align:center;margin-top:12px;min-height:18px;"></div>
   </div>
 </div>
 <div id="app">
@@ -264,7 +282,7 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="5" height="6" rx="1"/><rect x="9" y="2" width="5" height="4" rx="1"/><rect x="2" y="10" width="5" height="4" rx="1"/><rect x="9" y="8" width="5" height="6" rx="1"/></svg>
     Data Library
   </div>
-  <div class="nav-item" onclick="showScreen('bulk',this)">
+  <div class="nav-item" id="navBulk" onclick="showScreen('bulk',this)" style="display:none">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4h12M2 8h12M2 12h8"/><path d="M13 10l2 2-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     Bulk Import
   </div>
@@ -277,7 +295,9 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
       <input type="file" id="importInput" accept=".json" onchange="importData(event)" style="display:none">
       <span class="btn btn-sm btn-full" style="display:flex;cursor:pointer">⬆ Import data</span>
     </label>
-    <button class="btn btn-sm btn-full" style="color:var(--faint);font-size:10px" onclick="resetToDemo()">Reset to demo</button>
+    <div id="sbUserEmail" style="font-size:10px;color:var(--muted);text-align:center;padding:2px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+    <button class="btn btn-sm btn-full" style="color:var(--faint);font-size:10px;margin-top:4px" onclick="doSignOut()">Sign Out</button>
+    <button id="btnReset" class="btn btn-sm btn-full" style="color:var(--faint);font-size:10px;display:none" onclick="resetToDemo()">Reset data</button>
     <div class="sb-bottom-note">Export saves all data.<br>Import restores on any device.</div>
   </div>
 </aside>
@@ -406,17 +426,14 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
           ondrop="event.preventDefault();this.style.background='';bulkHandleFiles(event.dataTransfer.files)">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" style="width:32px;height:32px;margin-bottom:8px"><path d="M12 15V3M8 7l4-4 4 4M3 17v2a2 2 0 002 2h14a2 2 0 002-2v-2"/></svg>
           <div style="font-size:13px;font-weight:600;color:var(--accent)">Drop CSV files here</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">or click to browse · select as many as you like</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">or click to browse</div>
         </div>
         <input type="file" id="bulkFileInput" accept=".csv" multiple style="display:none" onchange="bulkHandleFiles(this.files)">
         <div id="bulkStatus" style="display:none;font-size:12px;padding:8px 12px;border-radius:6px;margin-bottom:12px"></div>
         <div id="bulkPreview" style="display:none">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
             <div id="bulkSummary" style="font-size:12px;font-weight:600"></div>
-            <div style="display:flex;gap:8px">
-              <button class="btn btn-sm" onclick="bulkClear()">Clear</button>
-              <button class="btn btn-primary btn-sm" id="bulkImportBtn" onclick="bulkImport()">Import All</button>
-            </div>
+            <div style="display:flex;gap:8px"><button class="btn btn-sm" onclick="bulkClear()">Clear</button><button class="btn btn-primary btn-sm" id="bulkImportBtn" onclick="bulkImport()">Import All</button></div>
           </div>
           <div class="table-wrap"><table>
             <thead><tr><th style="width:20px"><input type="checkbox" id="bulkChkAll" checked onchange="bulkToggleAll(this.checked)"></th><th>Filename</th><th>Client</th><th>Market</th><th>Period</th><th>Type</th><th>Status</th></tr></thead>
@@ -558,7 +575,13 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
 </div>
 
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+
+// ── SUPABASE ─────────────────────────────────────────────────────────────────
+const _SB = supabase.createClient('https://edhweiwwgvikipghhnvm.supabase.co', 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ');
+let _user = null, _role = null, _userClientId = null;
+
 // ── CONSTANTS ─────────────────────────────────────────────────
 const COLORS  = ['#4F46E5','#059669','#D97706','#DC2626','#7C3AED','#2563EB','#0891B2','#BE185D'];
 const MARKETS = ['USA','UK','DE','FR','IT','ES','CA','AU','JP','UAE','MX','SE','PL','NL','TR'];
@@ -583,9 +606,32 @@ let A = {
 function saveState() {
   try { localStorage.setItem('aap4', JSON.stringify(S)); } catch(e) {}
 }
-function loadState() {
-  // Start clean — no pre-loaded records
+async function cloudSaveRecord(rec) {
+  if (!_user || _role !== 'admin') return;
+  try {
+    await _SB.from('records').upsert({
+      id: rec.id, client_id: rec.clientId, market: rec.market,
+      period: rec.period, type: rec.type, filename: rec.filename,
+      data: rec.data, uploaded: rec.uploaded, parsed: rec.parsed
+    }, { onConflict: 'client_id,market,period,type' });
+  } catch(e) { console.warn('Cloud save failed:', e.message); }
 }
+async function cloudLoad() {
+  if (!_user) return;
+  try {
+    const [{data:cd,error:ce},{data:rd,error:re}] = await Promise.all([
+      _SB.from('clients').select('*'),
+      _SB.from('records').select('*')
+    ]);
+    if (ce) throw ce; if (re) throw re;
+    S.clients = (cd||[]).map(c=>({id:c.id,display:c.display,legal:c.legal,color:c.color,markets:c.markets||[]}));
+    S.records = (rd||[]).map(r=>({id:r.id,clientId:r.client_id,market:r.market,period:r.period,type:r.type,filename:r.filename,data:r.data,uploaded:r.uploaded,parsed:r.parsed}));
+    saveState();
+    renderSidebar();
+    renderHome();
+  } catch(e) { console.error('Cloud load failed:', e.message); }
+}
+function loadState() { /* data loaded from Supabase after sign-in */ }
 
 
 // ── PERIOD SORT ──────────────────────────────────────────────────────────────
@@ -602,16 +648,7 @@ function periodSort(a, b) {
 }
 
 // ── HELPERS ───────────────────────────────────────────────────
-const f$ = v => {
-  // Currency-aware formatter: uses current market filter symbol when FX is off
-  const mktEl = document.getElementById('filterMarket');
-  const mkt = mktEl ? mktEl.value : 'all';
-  const sym = fxActive() ? '$' : (mkt && mkt !== 'all' ? getCurrencySymbol(mkt) : '$');
-  const abs = Math.abs(v), sign = v < 0 ? '-' : '';
-  if (abs >= 1000000) return sign + sym + (abs/1000000).toFixed(2) + 'M';
-  if (abs >= 1000)    return sign + sym + (abs/1000).toFixed(1) + 'k';
-  return sign + sym + abs.toFixed(2);
-};
+const f$ = v => (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 const fn = v => (+v || 0).toLocaleString();
 const yoyCell = v => v >= 0 ? `<span class="yoy-up">▲ ${Math.abs(v).toFixed(1)}%</span>` : `<span class="yoy-down">▼ ${Math.abs(v).toFixed(1)}%</span>`;
 const emptyPanel = (h,p) => `<div class="panel"><div class="panel-body"><div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">${h}</div><p class="empty-text">${p}</p></div></div></div>`;
@@ -1338,15 +1375,15 @@ function renderOverview(cc, c, recs, bizR, prodR) {
   </div>
   <div class="panel"><div class="panel-header"><span class="panel-title">Period breakdown</span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th class="sortable" onclick="sortTable(this)">Period</th><th class="sortable" onclick="sortTable(this)">Market</th><th class="sortable" onclick="sortTable(this)">Type</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Sales</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Sales YoY</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units YoY</th></tr></thead>
+    <thead><tr><th class="sortable" onclick="sortTable(this)">Period</th><th class="sortable" onclick="sortTable(this)">Market</th><th class="sortable" onclick="sortTable(this)">Type</th><th class="sortable" onclick="sortTable(this)"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ordered product sales from Sales Dashboard CSV</span></span></th><th class="sortable" onclick="sortTable(this)">Units</th><th class="sortable" onclick="sortTable(this)"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">% change vs same period last year</span></span></th><th class="sortable" onclick="sortTable(this)"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">% change in units vs same period last year</span></span></th></tr></thead>
     <tbody>${[...bizR].sort((a,b)=>periodSort(a.period,b.period)).map(r=>`<tr>
       <td><strong>${r.period}</strong></td>
       <td><span class="chip chip-blue">${r.market}</span></td>
       <td><span class="type-badge type-csv">Sales CSV</span></td>
       <td style="text-align:right;font-weight:600;color:var(--green)">${fr$(r.data.snapshot?.sales||0,r)}</td>
       <td style="text-align:right">${fn(r.data.snapshot?.units||0)}</td>
-      <td style="text-align:right">${r.data.yoy?.sales_25 ? yoyCell(r.data.yoy?.pct_sales||0) : '<span style="color:var(--muted)">—</span>'}</td>
-      <td style="text-align:right">${r.data.yoy?.units_25 ? yoyCell(r.data.yoy?.pct_units||0) : '<span style="color:var(--muted)">—</span>'}</td>
+      <td style="text-align:right">${yoyCell(r.data.yoy?.pct_sales||0)}</td>
+      <td style="text-align:right">${yoyCell(r.data.yoy?.pct_units||0)}</td>
     </tr>`).join('')}</tbody>
   </table></div></div>`;
   setTimeout(()=>{
@@ -2022,6 +2059,7 @@ function bulkImport(){
       const idx=S.records.findIndex(x=>x.clientId===record.clientId&&x.market===record.market&&x.period===record.period&&x.type===record.type);
       if(idx>=0){S.records[idx]=record;replaced++;}else{S.records.push(record);added++;}
       if(!S.clients.find(c=>c.id===record.clientId)){const reg=CLIENT_REGISTRY.find(c=>c.id===record.clientId);if(reg)S.clients.push({...reg});}
+      cloudSaveRecord(record);
       done++;
       if(done===toImport.length){
         saveState();renderSidebar();renderHome();
@@ -3185,32 +3223,65 @@ function updateFxBtnState() {
   updateFxToggleUI(s.active);
 }
 
-try { localStorage.removeItem('aap4'); } catch(e) {}
 loadState();
 seedDemo();
 updateFxBtnState();
 renderSidebar();
 renderHome();
 
-// ── LOGIN ────────────────────────────────────────────────────────────────────
-(function(){
-  var HASH='cfe1b6bb7e42ce68da3b5402968bd5cb319933e012f6e78477ad316809a308aa', SK='mxr_v1';
-  async function sha256(s){
-    var b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));
-    return Array.from(new Uint8Array(b)).map(function(x){return x.toString(16).padStart(2,'0');}).join('');
-  }
-  function showApp(){var o=document.getElementById('loginOverlay');if(o)o.style.display='none';}
-  window.mxrLogin=function(){
-    var pw=(document.getElementById('mxrPwInput')||{}).value||'';
-    var err=document.getElementById('mxrErr');
-    if(!pw){if(err)err.textContent='Please enter a password.';return;}
-    sha256(pw).then(function(h){
-      if(h===HASH){sessionStorage.setItem(SK,'1');showApp();}
-      else{if(err)err.textContent='Incorrect password.';document.getElementById('mxrPwInput').value='';}
-    });
-  };
-  if(sessionStorage.getItem(SK)==='1')showApp();
+// ── AUTH ─────────────────────────────────────────────────────────────────────
+function _msg(txt,ok){const el=document.getElementById('authMsg');if(el){el.style.color=ok?'#34d399':'#f87171';el.textContent=txt;}}
+function showForgotPw(){document.getElementById('vLogin').style.display='none';document.getElementById('vForgot').style.display='block';_msg('');}
+function showSignIn(){document.getElementById('vLogin').style.display='block';document.getElementById('vForgot').style.display='none';_msg('');}
+async function doSignIn(){
+  const em=(document.getElementById('inEmail').value||'').trim();
+  const pw=(document.getElementById('inPw').value||'').trim();
+  if(!em||!pw){_msg('Please enter email and password.');return;}
+  const btn=document.getElementById('btnSignIn');
+  btn.textContent='Signing in…';btn.disabled=true;
+  const {data,error}=await _SB.auth.signInWithPassword({email:em,password:pw});
+  btn.textContent='Sign In';btn.disabled=false;
+  if(error){_msg(error.message);return;}
+  await _onSignIn(data.user);
+}
+async function doResetPw(){
+  const em=(document.getElementById('inResetEmail').value||'').trim();
+  if(!em){_msg('Please enter your email.');return;}
+  const {error}=await _SB.auth.resetPasswordForEmail(em,{redirectTo:window.location.href});
+  if(error)_msg(error.message);else _msg('Reset link sent — check your email.',true);
+}
+async function doSignOut(){
+  await _SB.auth.signOut();
+  _user=null;_role=null;_userClientId=null;
+  S.clients=[];S.records=[];
+  try{localStorage.removeItem('aap4');}catch(e){}
+  renderSidebar();renderHome();
+  document.getElementById('loginOverlay').style.display='flex';
+}
+async function _onSignIn(user){
+  _user=user;
+  const {data:prof}=await _SB.from('profiles').select('*').eq('id',user.id).single();
+  _role=(prof&&prof.role)||'client';
+  _userClientId=(prof&&prof.client_id)||null;
+  const nb=document.getElementById('navBulk');
+  const rb=document.getElementById('btnReset');
+  if(nb)nb.style.display=_role==='admin'?'flex':'none';
+  if(rb)rb.style.display=_role==='admin'?'block':'none';
+  const ue=document.getElementById('sbUserEmail');
+  if(ue)ue.textContent=user.email;
+  document.getElementById('loginOverlay').style.display='none';
+  await cloudLoad();
+}
+(async()=>{
+  const {data:{session}}=await _SB.auth.getSession();
+  if(session&&session.user){await _onSignIn(session.user);}
+  else{document.getElementById('loginOverlay').style.display='flex';}
+  _SB.auth.onAuthStateChange(async(ev,sess)=>{
+    if(ev==='SIGNED_IN'&&sess)await _onSignIn(sess.user);
+    else if(ev==='SIGNED_OUT')document.getElementById('loginOverlay').style.display='flex';
+  });
 })();
+
 </script>
 
 <!-- FX CONVERSION MODAL -->
