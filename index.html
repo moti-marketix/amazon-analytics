@@ -289,6 +289,10 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="2" width="5" height="6" rx="1"/><rect x="9" y="2" width="5" height="4" rx="1"/><rect x="2" y="10" width="5" height="4" rx="1"/><rect x="9" y="8" width="5" height="6" rx="1"/></svg>
     Data Library
   </div>
+  <div class="nav-item" id="navUsers" onclick="showScreen('users',this)" style="display:none">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="5" r="3"/><path d="M1 13c0-3 2-5 5-5s5 2 5 5"/><path d="M13 7v4m-2-2h4" stroke-linecap="round"/></svg>
+    Users
+  </div>
   <div class="nav-item" id="navBulk" onclick="showScreen('bulk',this)" style="display:none">
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 4h12M2 8h12M2 12h8"/><path d="M13 10l2 2-2 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     Bulk Import
@@ -421,6 +425,18 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
     <div class="screen" id="screen-client">
       <div class="sub-nav" id="clientSubNav"></div>
       <div id="clientContent" style="display:flex;flex-direction:column;gap:16px"></div>
+    </div>
+
+    <div class="screen" id="screen-users">
+      <div class="panel">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;">
+          <span class="panel-title">User Management</span>
+          <button class="btn btn-primary btn-sm" onclick="openUserModal()">+ Add User</button>
+        </div>
+        <div class="panel-body" id="usersTableWrap">
+          <div style="text-align:center;padding:40px;color:var(--muted);font-size:13px;">Loading users...</div>
+        </div>
+      </div>
     </div>
 
     <div class="screen" id="screen-bulk">
@@ -588,7 +604,7 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
 
 // ── SUPABASE ─────────────────────────────────────────────────────────────────
 const _SB = supabase.createClient('https://edhweiwwgvikipghhnvm.supabase.co', 'sb_publishable_-6aNfF4n4cOXPav9b--sbg_Vk22Wqav');
-let _user = null, _role = null, _userClientId = null;
+let _user = null, _role = null, _userClientId = null, _userClientIds = [];
 
 // ── CONSTANTS ─────────────────────────────────────────────────
 const COLORS  = ['#4F46E5','#059669','#D97706','#DC2626','#7C3AED','#2563EB','#0891B2','#BE185D'];
@@ -677,7 +693,7 @@ function showScreen(id, navEl) {
   const sc = document.getElementById('screen-' + id);
   if (sc) sc.classList.add('active');
   if (navEl) navEl.classList.add('active');
-  document.getElementById('topTitle').textContent = {home:'Home',upload:'Upload Data',library:'Data Library',bulk:'Bulk Import'}[id] || id;
+  document.getElementById('topTitle').textContent = {home:'Home',upload:'Upload Data',library:'Data Library',bulk:'Bulk Import',users:'User Management'}[id] || id;
   document.getElementById('topSub').textContent = 'Amazon Analytics Platform';
   document.getElementById('filterMarket').style.display = 'none';
   document.getElementById('filterPeriod').style.display = 'none';
@@ -687,6 +703,7 @@ function showScreen(id, navEl) {
   else if (id === 'upload') renderUploadHistory();
   else if (id === 'library') renderLibrary();
   else if (id === 'bulk') renderBulkScreen();
+  else if (id === 'users') renderUsersScreen();
 }
 
 function applyFilters() { renderClientDash(); }
@@ -3333,6 +3350,182 @@ async function fetchLiveRates() {
   btn.textContent = '↻ Fetch Live Rates'; btn.disabled = false;
 }
 
+
+// ── USER MANAGEMENT ──────────────────────────────────────────────────────────
+let _editingUserId = null;
+
+async function renderUsersScreen() {
+  const wrap = document.getElementById('usersTableWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px;">Loading...</div>';
+
+  try {
+    // Admin can read all profiles via the admin policy
+    const { data: users, error } = await _SB
+      .from('profiles')
+      .select('id, email, name, role, client_id, client_ids')
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+
+    if (!users || !users.length) {
+      wrap.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">No users found.</div>';
+      return;
+    }
+
+    const getClientNames = (u) => {
+      const ids = (u.client_ids && u.client_ids.length) ? u.client_ids : (u.client_id ? [u.client_id] : []);
+      return ids.map(id => {
+        const c = S.clients.find(c => c.id === id);
+        return c ? `<span style="background:${c.color}22;color:${c.color};padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;">${c.display}</span>` : id;
+      }).join(' ') || '<span style="color:var(--muted);font-size:11px;">—</span>';
+    };
+
+    wrap.innerHTML = `
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Name</th><th>Email</th><th>Role</th><th>Clients</th><th style="width:100px;text-align:center;">Actions</th>
+          </tr></thead>
+          <tbody>
+            ${users.map(u => `
+              <tr>
+                <td style="font-weight:600;">${u.name || '—'}</td>
+                <td style="font-size:12px;color:var(--muted);">${u.email}</td>
+                <td><span class="chip ${u.role==='admin'?'chip-green':'chip-blue'}">${u.role}</span></td>
+                <td>${getClientNames(u)}</td>
+                <td style="text-align:center;">
+                  <button onclick="editUser('${u.id}')" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:12px;padding:4px 8px;border-radius:4px;">Edit</button>
+                  ${u.id !== _user.id ? `<button onclick="deleteUser('${u.id}','${u.email}')" style="background:none;border:none;color:var(--red,#dc2626);cursor:pointer;font-size:12px;padding:4px 8px;border-radius:4px;">Delete</button>` : ''}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    wrap.innerHTML = `<div style="text-align:center;padding:40px;color:var(--red,#dc2626);">Error: ${e.message}</div>`;
+  }
+}
+
+function umRoleChanged() {
+  const role = document.getElementById('umRole').value;
+  const row  = document.getElementById('umClientsRow');
+  if (row) row.style.display = role === 'admin' ? 'none' : 'block';
+}
+
+function openUserModal(userId) {
+  _editingUserId = userId || null;
+  document.getElementById('userModalTitle').textContent = userId ? 'Edit User' : 'Add User';
+  document.getElementById('umName').value = '';
+  document.getElementById('umEmail').value = '';
+  document.getElementById('umPassword').value = '';
+  document.getElementById('umRole').value = 'client';
+  document.getElementById('umMsg').textContent = '';
+  document.getElementById('umPasswordRow').style.display = userId ? 'none' : 'block';
+  document.getElementById('umClientsRow').style.display = 'block';
+
+  // Populate client checkboxes
+  const list = document.getElementById('umClientsList');
+  list.innerHTML = S.clients.map(c => `
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 8px;border-radius:6px;background:#0f172a;">
+      <input type="checkbox" class="umClientChk" value="${c.id}" style="width:15px;height:15px;">
+      <span style="color:${c.color};font-weight:600;font-size:13px;">${c.display}</span>
+    </label>`).join('');
+
+  document.getElementById('userModal').style.display = 'flex';
+}
+
+async function editUser(userId) {
+  const { data: u } = await _SB.from('profiles').select('*').eq('id', userId).single();
+  if (!u) return;
+  openUserModal(userId);
+  document.getElementById('umName').value  = u.name || '';
+  document.getElementById('umEmail').value = u.email || '';
+  document.getElementById('umRole').value  = u.role || 'client';
+  umRoleChanged();
+  const ids = (u.client_ids && u.client_ids.length) ? u.client_ids : (u.client_id ? [u.client_id] : []);
+  document.querySelectorAll('.umClientChk').forEach(chk => {
+    chk.checked = ids.includes(chk.value);
+  });
+}
+
+function closeUserModal() {
+  document.getElementById('userModal').style.display = 'none';
+  _editingUserId = null;
+}
+
+async function saveUser() {
+  const btn  = document.getElementById('umSaveBtn');
+  const msg  = document.getElementById('umMsg');
+  const name = document.getElementById('umName').value.trim();
+  const email= document.getElementById('umEmail').value.trim();
+  const pw   = document.getElementById('umPassword').value.trim();
+  const role = document.getElementById('umRole').value;
+  const sendEmail = document.getElementById('umSendEmail').checked;
+  const clientIds = [...document.querySelectorAll('.umClientChk:checked')].map(c=>c.value);
+
+  if (!email) { msg.style.color='#f87171'; msg.textContent='Email is required.'; return; }
+  if (!_editingUserId && !pw) { msg.style.color='#f87171'; msg.textContent='Password is required.'; return; }
+  if (role==='client' && !clientIds.length) { msg.style.color='#f87171'; msg.textContent='Assign at least one client.'; return; }
+
+  btn.textContent='Saving…'; btn.disabled=true; msg.textContent='';
+
+  try {
+    if (_editingUserId) {
+      // Update existing user profile
+      const { error } = await _SB.from('profiles').update({
+        name, role,
+        client_id: clientIds[0] || null,
+        client_ids: clientIds
+      }).eq('id', _editingUserId);
+      if (error) throw error;
+      msg.style.color='#34d399'; msg.textContent='✓ User updated successfully.';
+    } else {
+      // Create new user via Supabase admin API (edge function workaround)
+      // We use the service role via a direct insert to auth.users won't work from client
+      // Instead use signUp which works without email confirmation if disabled
+      const { data, error } = await _SB.auth.admin ? 
+        _SB.auth.admin.createUser({ email, password: pw, email_confirm: true, user_metadata: { name } }) :
+        { data: null, error: { message: 'Admin API not available from browser' } };
+
+      if (error) {
+        // Fallback: use our custom RPC if admin API not available
+        const { data: rpcData, error: rpcErr } = await _SB.rpc('create_user_with_profile', {
+          p_email: email, p_password: pw, p_name: name,
+          p_role: role, p_client_ids: clientIds
+        });
+        if (rpcErr) throw rpcErr;
+      } else {
+        // Update profile with role and clients
+        await _SB.from('profiles').update({
+          name, role,
+          client_id: clientIds[0] || null,
+          client_ids: clientIds
+        }).eq('id', data.user.id);
+      }
+
+      if (sendEmail) {
+        // Send welcome email via Supabase auth reset (sends login link)
+        await _SB.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + window.location.pathname });
+        msg.style.color='#34d399'; msg.textContent='✓ User created. Welcome email sent.';
+      } else {
+        msg.style.color='#34d399'; msg.textContent='✓ User created successfully.';
+      }
+    }
+    await renderUsersScreen();
+  } catch(e) {
+    msg.style.color='#f87171'; msg.textContent='Error: '+e.message;
+  }
+  btn.textContent='Save User'; btn.disabled=false;
+}
+
+async function deleteUser(userId, email) {
+  if (!confirm('Delete user ' + email + '? This cannot be undone.')) return;
+  const { error } = await _SB.from('profiles').delete().eq('id', userId);
+  if (error) { alert('Error: ' + error.message); return; }
+  await renderUsersScreen();
+}
+
 loadState();
 seedDemo();
 updateFxBtnState();
@@ -3370,13 +3563,16 @@ async function doSignOut(){
 }
 async function _onSignIn(user){
   _user=user;
-  const {data:prof}=await _SB.from('profiles').select('*').eq('id',user.id).single();
+  const {data:prof}=await _SB.from('profiles').select('id,email,role,client_id,client_ids,name').eq('id',user.id).single();
   _role=(prof&&prof.role)||'client';
   _userClientId=(prof&&prof.client_id)||null;
+  _userClientIds=(prof&&prof.client_ids&&prof.client_ids.length)?prof.client_ids:(_userClientId?[_userClientId]:[]);
   const nb=document.getElementById('navBulk');
+  const nu=document.getElementById('navUsers');
   const rb=document.getElementById('btnReset');
   const db=document.getElementById('btnDeleteAll');
   if(nb)nb.style.display=_role==='admin'?'flex':'none';
+  if(nu)nu.style.display=_role==='admin'?'flex':'none';
   if(rb)rb.style.display=_role==='admin'?'block':'none';
   if(db)db.style.display=_role==='admin'?'block':'none';
   const ue=document.getElementById('sbUserEmail');
@@ -3501,5 +3697,59 @@ async function _onSignIn(user){
 </div></div>
 <div id="delMsg" style="font-size:12px;text-align:center;margin-top:10px;color:#f87171;min-height:16px;"></div>
 </div></div>
+
+<!-- ── USER MODAL ──────────────────────────────────────────────────── -->
+<div id="userModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:99980;align-items:center;justify-content:center;">
+  <div style="background:#1e293b;border-radius:16px;padding:32px;width:100%;max-width:480px;box-shadow:0 25px 50px rgba(0,0,0,.5);margin:20px;max-height:90vh;overflow-y:auto;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+      <div style="color:#f8fafc;font-size:18px;font-weight:700;" id="userModalTitle">Add User</div>
+      <button onclick="closeUserModal()" style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">✕</button>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label style="color:#94a3b8;font-size:12px;display:block;margin-bottom:6px;">Full Name</label>
+        <input type="text" id="umName" placeholder="John Smith"
+          style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-size:14px;outline:none;">
+      </div>
+      <div>
+        <label style="color:#94a3b8;font-size:12px;display:block;margin-bottom:6px;">Email</label>
+        <input type="email" id="umEmail" placeholder="user@company.com"
+          style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-size:14px;outline:none;">
+      </div>
+      <div id="umPasswordRow">
+        <label style="color:#94a3b8;font-size:12px;display:block;margin-bottom:6px;">Password</label>
+        <input type="text" id="umPassword" placeholder="Temporary password"
+          style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-size:14px;outline:none;">
+      </div>
+      <div>
+        <label style="color:#94a3b8;font-size:12px;display:block;margin-bottom:6px;">Role</label>
+        <select id="umRole" onchange="umRoleChanged()"
+          style="width:100%;box-sizing:border-box;padding:10px 14px;border-radius:8px;border:1px solid #334155;background:#0f172a;color:#f8fafc;font-size:14px;outline:none;">
+          <option value="client">Client</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <div id="umClientsRow">
+        <label style="color:#94a3b8;font-size:12px;display:block;margin-bottom:8px;">Assign Clients <span style="color:#64748b;">(select one or more)</span></label>
+        <div id="umClientsList" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;"></div>
+      </div>
+      <div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="umSendEmail" checked style="width:16px;height:16px;">
+          <span style="color:#94a3b8;font-size:13px;">Send welcome email with login details</span>
+        </label>
+      </div>
+    </div>
+
+    <div id="umMsg" style="font-size:12px;margin-top:14px;min-height:16px;text-align:center;"></div>
+
+    <div style="display:flex;gap:8px;margin-top:20px;">
+      <button onclick="closeUserModal()" style="flex:1;padding:11px;border-radius:8px;border:1px solid #334155;background:transparent;color:#94a3b8;font-size:14px;cursor:pointer;">Cancel</button>
+      <button id="umSaveBtn" onclick="saveUser()"
+        style="flex:1;padding:11px;border-radius:8px;border:none;background:#7c3aed;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Save User</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
