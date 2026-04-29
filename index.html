@@ -3436,17 +3436,26 @@ function openUserModal(userId) {
 }
 
 async function editUser(userId) {
-  const { data: u } = await _SB.from('profiles').select('*').eq('id', userId).single();
-  if (!u) return;
+  // Open modal first so checkboxes exist in DOM
   openUserModal(userId);
-  document.getElementById('umName').value  = u.name || '';
-  document.getElementById('umEmail').value = u.email || '';
-  document.getElementById('umRole').value  = u.role || 'client';
-  umRoleChanged();
-  const ids = (u.client_ids && u.client_ids.length) ? u.client_ids : (u.client_id ? [u.client_id] : []);
-  document.querySelectorAll('.umClientChk').forEach(chk => {
-    chk.checked = ids.includes(chk.value);
-  });
+  const msg = document.getElementById('umMsg');
+  msg.style.color='#94a3b8'; msg.textContent='Loading...';
+  try {
+    const { data: u, error } = await _SB.from('profiles').select('*').eq('id', userId).single();
+    if (error) throw error;
+    if (!u) throw new Error('User not found');
+    document.getElementById('umName').value  = u.name  || '';
+    document.getElementById('umEmail').value = u.email || '';
+    document.getElementById('umRole').value  = u.role  || 'client';
+    umRoleChanged();
+    const ids = (u.client_ids && u.client_ids.length) ? u.client_ids : (u.client_id ? [u.client_id] : []);
+    document.querySelectorAll('.umClientChk').forEach(chk => {
+      chk.checked = ids.includes(chk.value);
+    });
+    msg.textContent = '';
+  } catch(e) {
+    msg.style.color='#f87171'; msg.textContent='Error loading user: '+e.message;
+  }
 }
 
 function closeUserModal() {
