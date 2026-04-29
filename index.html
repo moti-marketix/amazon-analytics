@@ -3481,28 +3481,12 @@ async function saveUser() {
       if (error) throw error;
       msg.style.color='#34d399'; msg.textContent='✓ User updated successfully.';
     } else {
-      // Create new user via Supabase admin API (edge function workaround)
-      // We use the service role via a direct insert to auth.users won't work from client
-      // Instead use signUp which works without email confirmation if disabled
-      const { data, error } = await _SB.auth.admin ? 
-        _SB.auth.admin.createUser({ email, password: pw, email_confirm: true, user_metadata: { name } }) :
-        { data: null, error: { message: 'Admin API not available from browser' } };
-
-      if (error) {
-        // Fallback: use our custom RPC if admin API not available
-        const { data: rpcData, error: rpcErr } = await _SB.rpc('create_user_with_profile', {
-          p_email: email, p_password: pw, p_name: name,
-          p_role: role, p_client_ids: clientIds
-        });
-        if (rpcErr) throw rpcErr;
-      } else {
-        // Update profile with role and clients
-        await _SB.from('profiles').update({
-          name, role,
-          client_id: clientIds[0] || null,
-          client_ids: clientIds
-        }).eq('id', data.user.id);
-      }
+      // Create user via secure SQL function
+      const { data: rpcData, error: rpcErr } = await _SB.rpc('create_user_with_profile', {
+        p_email: email, p_password: pw, p_name: name,
+        p_role: role, p_client_ids: clientIds.length ? clientIds : []
+      });
+      if (rpcErr) throw rpcErr;
 
       if (sendEmail) {
         // Send welcome email via Supabase auth reset (sends login link)
