@@ -3470,7 +3470,6 @@ async function saveUser() {
   const email= document.getElementById('umEmail').value.trim();
   const pw   = document.getElementById('umPassword').value.trim();
   const role = document.getElementById('umRole').value;
-  const sendEmail = document.getElementById('umSendEmail').checked;
   const clientIds = [...document.querySelectorAll('.umClientChk:checked')].map(c=>c.value);
 
   if (!email) { msg.style.color='#f87171'; msg.textContent='Email is required.'; return; }
@@ -3721,12 +3720,7 @@ async function _onSignIn(user){
         <label style="color:#94a3b8;font-size:12px;display:block;margin-bottom:8px;">Assign Clients <span style="color:#64748b;">(select one or more)</span></label>
         <div id="umClientsList" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;"></div>
       </div>
-      <div>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-          <input type="checkbox" id="umSendEmail" checked style="width:16px;height:16px;">
-          <span style="color:#94a3b8;font-size:13px;">Send welcome email with login details</span>
-        </label>
-      </div>
+
     </div>
 
     <div id="umMsg" style="font-size:12px;margin-top:14px;min-height:16px;text-align:center;"></div>
