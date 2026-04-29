@@ -3488,13 +3488,7 @@ async function saveUser() {
       });
       if (rpcErr) throw rpcErr;
 
-      if (sendEmail) {
-        // Send welcome email via Supabase auth reset (sends login link)
-        await _SB.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + window.location.pathname });
-        msg.style.color='#34d399'; msg.textContent='✓ User created. Welcome email sent.';
-      } else {
-        msg.style.color='#34d399'; msg.textContent='✓ User created successfully.';
-      }
+      msg.style.color='#34d399'; msg.textContent='✓ User created — ' + email + ' / ' + pw;
     }
     await renderUsersScreen();
   } catch(e) {
