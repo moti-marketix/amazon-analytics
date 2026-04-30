@@ -1359,7 +1359,7 @@ function renderClientDash() {
   recs = recs.filter(r=>!r.period.includes('2025'));
   const bizR  = recs.filter(r=>r.type==='business_csv'&&r.data?.snapshot);
   const prodR = recs.filter(r=>r.type==='product_csv'&&r.data?.parents);
-  const summR = recs.filter(r=>r.type==='summary_pdf'||r.type==='transaction_csv');
+  const summR = recs.filter(r=>r.type==='summary_pdf'||r.type==='transaction_csv'||r.type==='economics_csv');
 
   // Sub nav — use allRecs for YoY check so period filter doesn't hide it
   const prod25 = allRecs.filter(r=>r.type==='product_csv'&&r.period.includes('2025')&&r.data&&r.data.parents);
