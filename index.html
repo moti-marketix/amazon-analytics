@@ -631,14 +631,16 @@ function saveState() {
   try { localStorage.setItem('aap4', JSON.stringify(S)); } catch(e) {}
 }
 async function cloudSaveRecord(rec) {
-  if (!_user || _role !== 'admin') return;
+  if (!_user) { console.warn('cloudSaveRecord: no user'); return; }
+  if (_role !== 'admin') { console.warn('cloudSaveRecord: not admin, role='+_role); return; }
   try {
-    await _SB.from('records').upsert({
+    const {error} = await _SB.from('records').upsert({
       id: rec.id, client_id: rec.clientId, market: rec.market,
       period: rec.period, type: rec.type, filename: rec.filename,
       data: rec.data, uploaded: rec.uploaded, parsed: rec.parsed
     }, { onConflict: 'client_id,market,period,type' });
-  } catch(e) { console.warn('Cloud save failed:', e.message); }
+    if (error) console.error('cloudSaveRecord error:', error.message, 'code:', error.code);
+  } catch(e) { console.error('cloudSaveRecord exception:', e.message); }
 }
 async function cloudLoad() {
   if (!_user) return;
@@ -661,7 +663,12 @@ async function cloudLoad() {
     renderHome();
   }
 }
-function loadState() { /* data loaded from Supabase after sign-in */ }
+function loadState() {
+  try {
+    const saved = localStorage.getItem('aap4');
+    if (saved) { const d=JSON.parse(saved); if(d.clients)S.clients=d.clients; if(d.records)S.records=d.records; }
+  } catch(e) {}
+}
 
 
 // ── PERIOD SORT ──────────────────────────────────────────────────────────────
@@ -903,6 +910,7 @@ function parseFile(type, text, filename) {
     if (type==='business_csv')   return parseBusinessCSV(text);
     if (type==='product_csv')    return parseProductCSV(text);
     if (type==='transaction_csv') return parseTransactionCSV(text);
+    if (type==='economics_csv')    return parseEconomicsCSV(text);
     return { raw: text.slice(0,400), note:'Stored as raw text' };
   } catch(e) { return { error:e.message }; }
 }
@@ -2026,7 +2034,7 @@ function resetToDemo() {
   showScreen('home', document.querySelector('.nav-item'));
 }
 const BULK_MONTHS={jan:'Jan',january:'Jan',feb:'Feb',february:'Feb',mar:'Mar',march:'Mar',apr:'Apr',april:'Apr',may:'May',jun:'Jun',june:'Jun',jul:'Jul',july:'Jul',aug:'Aug',august:'Aug',sep:'Sep',september:'Sep',oct:'Oct',october:'Oct',nov:'Nov',november:'Nov',dec:'Dec',december:'Dec'};
-const BULK_MKT_SET=new Set(['USA','CA','UK','DE','FR','IT','ES']);
+const BULK_MKT_SET=new Set(['USA','CA','UK','DE','FR','IT','ES','MULTI']);
 function bulkTokens(fn){return fn.replace(/\.csv$/i,'').split(/[-_.\/\s]+/).map(t=>t.trim()).filter(Boolean);}
 function bulkMatchClient(tokens){
   const tl=tokens.map(t=>t.toLowerCase());let best=null,bs=0;
@@ -2049,14 +2057,16 @@ function bulkParseName(filename){
   if(/businessreport|business.?report/i.test(filename))type='product_csv';
   else if(/salesdashboard|sales.?dashboard/i.test(filename))type='business_csv';
   else if(/transaction/i.test(filename))type='transaction_csv';
-  for(const mkt of BULK_MKT_SET){if(tokens.some(t=>t.toUpperCase()===mkt)){market=mkt;break;}}
+  else if(/selling.?economics|economics.?fees|tortuga/i.test(filename))type='economics_csv';
+  if(type==='economics_csv'){market='MULTI';}
+  else{for(const mkt of BULK_MKT_SET){if(tokens.some(t=>t.toUpperCase()===mkt)){market=mkt;break;}}}
   const yr=tokens.find(t=>/^20\d{2}$/.test(t));if(yr)year=yr;
   for(const t of tokens){const m=BULK_MONTHS[t.toLowerCase()];if(m){month=m;break;}}
   const cm=bulkMatchClient(tokens);if(cm){clientId=cm.id;clientDisplay=cm.display;}
   const period=(month&&year)?month+' '+year:null;
   const missing=[];
   if(!type)missing.push('type');if(!clientId)missing.push('client');
-  if(!market)missing.push('market');if(!period)missing.push('period');
+  if(!market&&type!=='economics_csv')missing.push('market');if(!period)missing.push('period');
   return {type,clientId,clientDisplay,market,period,status:missing.length===0?'ready':'incomplete',missing};
 }
 let bulkQueue=[];
@@ -2076,7 +2086,7 @@ function bulkRenderTable(){
   tbody.innerHTML=bulkQueue.map((q,i)=>{
     const cl=CLIENT_REGISTRY.find(c=>c.id===q.clientId);
     const clLabel=cl?`<span style="color:${cl.color};font-weight:600">${cl.display}</span>`:`<span style="color:var(--red,#dc2626);font-size:11px">${q.clientDisplay||'?'} — not found</span>`;
-    const typeLabel={product_csv:'Business Report',business_csv:'Sales Dashboard',transaction_csv:'Transaction'}[q.type]||(q.type||'?');
+    const typeLabel={product_csv:'Business Report',business_csv:'Sales Dashboard',transaction_csv:'Transaction',economics_csv:'Selling Economics'}[q.type]||(q.type||'?');
     const badge=q.status==='ready'?'<span class="chip chip-green">Ready</span>':`<span class="chip chip-amber" title="Missing: ${(q.missing||[]).join(', ')}">&#9888; ${(q.missing||[]).join(', ')}</span>`;
     const dis=q.status!=='ready'?'disabled':'';
     return `<tr style="opacity:${q.status==='ready'?1:.55}">`
@@ -2116,11 +2126,25 @@ function bulkImport(){
     const reader=new FileReader();
     reader.onload=ev=>{
       const parsed=parseFile(q.type,ev.target.result,q.file.name);
-      const record={id:'r'+Date.now()+Math.random().toString(36).slice(2,5),clientId:q.clientId,market:q.market,period:q.period,type:q.type,filename:q.file.name,data:parsed,uploaded:new Date().toISOString(),parsed:true};
-      const idx=S.records.findIndex(x=>x.clientId===record.clientId&&x.market===record.market&&x.period===record.period&&x.type===record.type);
-      if(idx>=0){S.records[idx]=record;replaced++;}else{S.records.push(record);added++;}
-      if(!S.clients.find(c=>c.id===record.clientId)){const reg=CLIENT_REGISTRY.find(c=>c.id===record.clientId);if(reg)S.clients.push({...reg});}
-      cloudSaveRecord(record);
+      // For economics_csv, split into one record per market
+      const recordsToSave = [];
+      if(q.type==='economics_csv'&&parsed.markets){
+        Object.entries(parsed.markets).forEach(([mkt,mktData])=>{
+          recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
+            clientId:q.clientId,market:mkt,period:q.period,type:'economics_csv',
+            filename:q.file.name,data:mktData,uploaded:new Date().toISOString(),parsed:true});
+        });
+      } else {
+        recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
+          clientId:q.clientId,market:q.market,period:q.period,type:q.type,
+          filename:q.file.name,data:parsed,uploaded:new Date().toISOString(),parsed:true});
+      }
+      recordsToSave.forEach(record=>{
+        const idx=S.records.findIndex(x=>x.clientId===record.clientId&&x.market===record.market&&x.period===record.period&&x.type===record.type);
+        if(idx>=0){S.records[idx]=record;replaced++;}else{S.records.push(record);added++;}
+        if(!S.clients.find(c=>c.id===record.clientId)){const reg=CLIENT_REGISTRY.find(c=>c.id===record.clientId);if(reg)S.clients.push({...reg});}
+        cloudSaveRecord(record);
+      });
       done++;
       if(done===toImport.length){
         saveState();renderSidebar();renderHome();
@@ -2708,6 +2732,7 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
   };
   const biz26  = bizR.filter(r=>r.data&&r.data.snapshot);
   const txn26  = summR.filter(r=>r.type==='transaction_csv'&&r.data);
+  const econ26 = summR.filter(r=>r.type==='economics_csv'&&r.data);
   const prod26 = prodR.filter(r=>r.data&&r.data.parents&&!r.period.includes('2025'));
   const biz25  = allRecs.filter(r=>r.type==='business_csv'&&r.data&&r.data.snapshot&&r.period.includes('2025'));
   const prod25 = allRecs.filter(r=>r.type==='product_csv'&&r.data&&r.data.parents&&r.period.includes('2025'));
@@ -2728,8 +2753,11 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
   const totUnits25 = biz26.reduce((s,r)=>s+(r.data.yoy?.units_25||0),0);
   const totIncome  = txn26.reduce((s,r)=>s+toUSD(r.data.income||0,r.market),0);
   const totExpenses= txn26.reduce((s,r)=>s+toUSD(r.data.expenses||0,r.market),0);
-  const totAdv     = txn26.reduce((s,r)=>s+toUSD(r.data.adv||0,r.market),0);
-  const totFba     = txn26.reduce((s,r)=>s+toUSD(r.data.fba_sales||0,r.market),0);
+  // Use economics_csv for adv if available, fall back to transaction_csv
+  const totAdv = econ26.length
+    ? econ26.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0)
+    : txn26.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+  const totFba = bizR.reduce((s,r)=>s+toUSD(r.data.snapshot?.sales||0,r.market),0);
   const avgTacos   = totFba ? (Math.abs(totAdv)/totFba*100) : 0;
   const salesGrowth= totSales25 ? ((totSales-totSales25)/totSales25*100) : null;
   const unitsGrowth= totUnits25 ? ((totUnits-totUnits25)/totUnits25*100) : null;
@@ -2848,7 +2876,9 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
           const tx=txn26.find(t=>t.period===r.period);
           const sg=yy.sales_25?((sn.sales-yy.sales_25)/yy.sales_25*100):null;
           const ug=yy.units_25?((sn.units-yy.units_25)/yy.units_25*100):null;
-          const tc=tx?Math.abs(tx.data.adv||0)/((tx.data.fba_sales||1))*100:null;
+          const econ=econ26.find(r=>r.period===biz.period);
+          const advVal=econ?(econ.data.adv||0):tx?(tx.data.adv||0):0;
+          const tc=(econ||tx)?Math.abs(advVal)/((biz.data.snapshot?.sales||1))*100:null;
           const tcColor=tc>20?'var(--red)':tc>12?'var(--amber)':'var(--green)';
           return `<tr>
             <td><strong>${r.period}</strong></td>
@@ -3510,6 +3540,74 @@ async function deleteUser(userId, email) {
   const { error } = await _SB.from('profiles').delete().eq('id', userId);
   if (error) { alert('Error: ' + error.message); return; }
   await renderUsersScreen();
+}
+
+
+function parseEconomicsCSV(text) {
+  const lines = text.split('\n').filter(l=>l.trim());
+  if (lines.length < 2) return { error:'Empty file', markets:{} };
+
+  // Parse headers — normalize spelling differences between NA (fulfillment) and EU (fulfilment)
+  const norm = h => h.toLowerCase().replace(/fulfilment/g,'fulfillment').replace(/utilisation/g,'utilization');
+  const hdrs = csvLine(lines[0]).map(h=>norm(h.trim()));
+
+  const storeMap = {US:'USA',CA:'CA',GB:'UK',DE:'DE',FR:'FR',IT:'IT',ES:'ES'};
+
+  const n = s => { const v=parseFloat((s||'').replace(/,/g,'')); return isNaN(v)?0:v; };
+
+  const get = (row, ...variants) => {
+    for (const v of variants) {
+      const idx = hdrs.indexOf(v.toLowerCase());
+      if (idx>=0) return n(row[idx]);
+    }
+    return 0;
+  };
+
+  // Group by marketplace
+  const markets = {};
+
+  for (const raw of lines.slice(1)) {
+    const cols = csvLine(raw);
+    if (cols.length < 10) continue;
+
+    const storeRaw = cols[hdrs.indexOf('amazon store')]||'';
+    const market   = storeMap[storeRaw.trim().toUpperCase()] || storeRaw;
+    if (!market) continue;
+
+    if (!markets[market]) markets[market] = {
+      sales:0, net_sales:0, units:0,
+      adv:0, referral_fees:0, fba_fees:0,
+      storage:0, inbound:0, net_proceeds:0,
+      rows:0
+    };
+
+    const d = markets[market];
+    d.sales         += get(cols,'sales');
+    d.net_sales     += get(cols,'net sales');
+    d.units         += n(cols[hdrs.indexOf('units sold')]||'0');
+    d.adv           += get(cols,'sponsored products charge total');
+    d.referral_fees += get(cols,'referral fee total');
+    d.fba_fees      += get(cols,'fba fulfillment fees total','fulfillment by amazon fulfillment fees total');
+    d.storage       += get(cols,'base monthly storage fee total','monthly storage fee total','monthly inventory storage fee total');
+    d.inbound       += get(cols,'fba inbound placement service fee total','inbound transportation fee total');
+    d.net_proceeds  += get(cols,'net proceeds total');
+    d.rows++;
+  }
+
+  // Round all values
+  for (const m of Object.values(markets)) {
+    for (const k of Object.keys(m)) {
+      if (k!=='rows') m[k] = Math.round(m[k]*100)/100;
+    }
+    m.tacos = m.sales ? Math.round(Math.abs(m.adv)/m.sales*10000)/100 : 0;
+  }
+
+  return {
+    markets,
+    _rows: lines.length-1,
+    _source: 'economics_csv',
+    _auto_parsed: true
+  };
 }
 
 loadState();
