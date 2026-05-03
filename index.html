@@ -1424,9 +1424,7 @@ function renderOverview(cc, c, recs, bizR, prodR) {
   const totPU= prodR.reduce((s,r)=>s+(r.data.total_units||0),0);
   const periods = [...new Set(bizR.map(r=>r.period))].sort();
   const marketFilter = document.getElementById('filterMarket')?.value || 'all';
-  const mcWarn = (marketFilter === 'all' && hasMultiCurrency(recs)) ? multiCurrencyWarning() : '';
   cc.innerHTML = `
-  ${mcWarn}
   <div class="kpi-grid">
     <div class="kpi-card green"><div class="kpi-label">Ordered sales</div><div class="kpi-value">${f$(totS)}</div><div class="kpi-sub">${bizR.length} period(s)</div></div>
     <div class="kpi-card blue"><div class="kpi-label">Units ordered</div><div class="kpi-value">${fn(totU)}</div><div class="kpi-sub">Sales CSV</div></div>
@@ -3065,8 +3063,13 @@ function renderInsights(cc, c, allRecs) {
   }
 
   // Build a rich data summary for Claude
+  const econ26 = allRecs.filter(r=>r.type==='economics_csv'&&r.data&&r.period.includes('2026'))
+                         .sort((a,b)=>periodSort(a.period,b.period));
+  const mktEl = document.getElementById('filterMarket');
+  const mktFilter = mktEl ? mktEl.value : 'all';
+
   const buildDataSummary = () => {
-    let summary = `Amazon Seller Analytics Report\nClient: ${c.display} (${c.legal})\nMarketplace: USA\n\n`;
+    let summary = `Amazon Seller Analytics Report\nClient: ${c.display} (${c.legal})\nMarket: ${mktFilter==='all'?'All Markets':mktFilter}\nPeriods: 2025-2026\n\n`;
 
     summary += `=== SALES PERFORMANCE ===\n`;
     biz26.forEach(r => {
@@ -3078,14 +3081,20 @@ function renderInsights(cc, c, allRecs) {
       summary += '\n';
     });
 
-    if (txn26.length) {
-      summary += `\n=== FINANCIALS ===\n`;
+    if (econ26.length) {
+      summary += `\n=== ADVERTISING & FEES (Selling Economics) ===\n`;
+      econ26.forEach(r => {
+        const d=r.data;
+        const tacos=d.sales?(Math.abs(d.adv||0)/d.sales*100):0;
+        summary += `${r.period} ${r.market}: Sales $${d.sales?.toFixed(2)||0}, Ad Spend $${Math.abs(d.adv||0).toFixed(2)}, TACoS ${tacos.toFixed(1)}%, `;
+        summary += `FBA Fees $${Math.abs(d.fba_fees||0).toFixed(2)}, Referral Fees $${Math.abs(d.referral_fees||0).toFixed(2)}, Storage $${Math.abs(d.storage||0).toFixed(2)}\n`;
+      });
+    } else if (txn26.length) {
+      summary += `\n=== FINANCIALS (Transaction CSV) ===\n`;
       txn26.forEach(r => {
         const d=r.data;
         const tacos=d.fba_sales?(Math.abs(d.adv||0)/d.fba_sales*100):0;
-        summary += `${r.period}: Income $${d.income?.toFixed(2)||0}, Expenses $${d.expenses?.toFixed(2)||0}, `;
-        summary += `FBA Sales $${d.fba_sales?.toFixed(2)||0}, Ad Spend $${d.adv?.toFixed(2)||0}, TACOS ${tacos.toFixed(1)}%, `;
-        summary += `Bank Transfer $${d.bank?.toFixed(2)||0}\n`;
+        summary += `${r.period}: FBA Sales $${d.fba_sales?.toFixed(2)||0}, Ad Spend $${Math.abs(d.adv||0).toFixed(2)}, TACoS ${tacos.toFixed(1)}%, Refunds $${d.refunds?.toFixed(2)||0}\n`;
       });
     }
 
@@ -3201,18 +3210,10 @@ function rSym(r) {
 }
 
 // Check if a set of records spans multiple currencies
-function hasMultiCurrency(recs) {
-  const currencies = new Set(recs.map(r => r.currency || getMarketCurrency(r.market)));
-  return currencies.size > 1;
-}
+
 
 // Multi-currency warning banner
-function multiCurrencyWarning() {
-  return '<div style="background:var(--amber-lt);border:1px solid var(--amber);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--amber-dk);display:flex;gap:8px;align-items:center">'
-    + '<span style="font-size:16px">⚠</span>'
-    + '<span><strong>Multiple currencies shown.</strong> Values are in their native currency (USD, CAD, GBP, EUR) and are not converted. Totals across markets are for reference only.</span>'
-    + '</div>';
-}
+function multiCurrencyWarning() { return ""; }
 
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -3606,6 +3607,118 @@ function parseEconomicsCSV(text) {
     _source: 'economics_csv',
     _auto_parsed: true
   };
+}
+
+
+// ── AI INSIGHTS ───────────────────────────────────────────────────────────────
+async function generateInsights() {
+  const btn = document.getElementById('generateInsightsBtn');
+  const output = document.getElementById('insightsOutput');
+  if (!btn || !output) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Analysing…';
+
+  // Show loading state
+  output.innerHTML = `
+    <div style="text-align:center;padding:48px 20px;">
+      <div style="font-size:32px;margin-bottom:16px;animation:spin 2s linear infinite;display:inline-block;">🤖</div>
+      <div style="font-weight:600;color:var(--ink);margin-bottom:8px;">Claude is analysing your data…</div>
+      <div style="font-size:12px;color:var(--muted);">This usually takes 10–20 seconds</div>
+    </div>`;
+
+  const market = document.getElementById('filterMarket')?.value || 'all';
+  const marketLabel = market === 'all' ? 'All Markets' : market;
+
+  const prompt = `You are an expert Amazon seller consultant reviewing performance data for a client. 
+Analyse the following data and provide a structured business review.
+
+Client: ${window._insightClient || 'Unknown'}
+Market filter: ${marketLabel}
+
+${window._insightData || 'No data available'}
+
+Please provide your analysis in the following format using HTML for formatting. Be specific with numbers from the data. Write in a professional but accessible tone suitable for sharing with a client.
+
+Structure your response as:
+
+<h3>Executive Summary</h3>
+<p>2-3 sentence overview of overall performance</p>
+
+<h3>Sales Performance</h3>
+<p>Analysis of sales trends, YoY changes, and momentum</p>
+
+<h3>Product Analysis</h3>
+<p>Top performing products, underperformers, and opportunities</p>
+
+<h3>Advertising Efficiency</h3>
+<p>TACoS analysis and ad spend assessment</p>
+
+<h3>Key Recommendations</h3>
+<ul>
+<li>Specific action item 1</li>
+<li>Specific action item 2</li>
+<li>Specific action item 3</li>
+</ul>
+
+Keep each section concise and data-driven. Use actual numbers from the data provided.`;
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error?.message || 'API error ' + response.status);
+    }
+
+    const data = await response.json();
+    const text = data.content?.map(b => b.text || '').join('') || 'No response';
+
+    // Render the insights
+    output.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <div style="font-size:11px;color:var(--muted);">Generated by Claude · ${new Date().toLocaleString()}</div>
+        <button class="btn btn-sm" onclick="generateInsights()">Regenerate</button>
+      </div>
+      <div style="line-height:1.7;color:var(--ink);" id="insightsContent"></div>`;
+
+    // Style the HTML content
+    const contentDiv = document.getElementById('insightsContent');
+    contentDiv.innerHTML = text;
+
+    // Style headings and lists
+    contentDiv.querySelectorAll('h3').forEach(h => {
+      h.style.cssText = 'font-size:14px;font-weight:700;color:var(--accent);margin:18px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);';
+    });
+    contentDiv.querySelectorAll('p').forEach(p => {
+      p.style.cssText = 'font-size:13px;margin-bottom:10px;color:var(--ink);';
+    });
+    contentDiv.querySelectorAll('ul').forEach(ul => {
+      ul.style.cssText = 'padding-left:20px;margin:8px 0;';
+    });
+    contentDiv.querySelectorAll('li').forEach(li => {
+      li.style.cssText = 'font-size:13px;margin-bottom:6px;color:var(--ink);';
+    });
+
+  } catch(e) {
+    output.innerHTML = `
+      <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:10px;padding:16px;color:#991b1b;">
+        <strong>Could not generate insights</strong><br>
+        <span style="font-size:12px;">${e.message}</span><br>
+        <span style="font-size:11px;color:#b91c1c;margin-top:6px;display:block;">Make sure you are connected to the internet and try again.</span>
+      </div>`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Generate Insights';
 }
 
 loadState();
