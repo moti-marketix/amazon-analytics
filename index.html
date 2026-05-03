@@ -2874,9 +2874,9 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
           const tx=txn26.find(t=>t.period===r.period);
           const sg=yy.sales_25?((sn.sales-yy.sales_25)/yy.sales_25*100):null;
           const ug=yy.units_25?((sn.units-yy.units_25)/yy.units_25*100):null;
-          const econ=econ26.find(r=>r.period===biz.period);
+          const econ=econ26.find(e=>e.period===r.period);
           const advVal=econ?(econ.data.adv||0):tx?(tx.data.adv||0):0;
-          const tc=(econ||tx)?Math.abs(advVal)/((biz.data.snapshot?.sales||1))*100:null;
+          const tc=(econ||tx)?Math.abs(advVal)/((sn.sales||1))*100:null;
           const tcColor=tc>20?'var(--red)':tc>12?'var(--amber)':'var(--green)';
           return `<tr>
             <td><strong>${r.period}</strong></td>
