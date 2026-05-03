@@ -631,16 +631,14 @@ function saveState() {
   try { localStorage.setItem('aap4', JSON.stringify(S)); } catch(e) {}
 }
 async function cloudSaveRecord(rec) {
-  if (!_user) { console.warn('cloudSaveRecord: no user'); return; }
-  if (_role !== 'admin') { console.warn('cloudSaveRecord: not admin, role='+_role); return; }
+  if (!_user || _role !== 'admin') return;
   try {
-    const {error} = await _SB.from('records').upsert({
+    await _SB.from('records').upsert({
       id: rec.id, client_id: rec.clientId, market: rec.market,
       period: rec.period, type: rec.type, filename: rec.filename,
       data: rec.data, uploaded: rec.uploaded, parsed: rec.parsed
     }, { onConflict: 'client_id,market,period,type' });
-    if (error) console.error('cloudSaveRecord error:', error.message, 'code:', error.code);
-  } catch(e) { console.error('cloudSaveRecord exception:', e.message); }
+  } catch(e) { console.error('cloudSaveRecord error:', e.message); }
 }
 async function cloudLoad() {
   if (!_user) return;
