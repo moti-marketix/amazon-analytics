@@ -2801,9 +2801,7 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
   const periods = sorted26.map(r=>r.period);
   const periodStr = periods.length === 1 ? periods[0] : periods[0]+' – '+periods[periods.length-1];
 
-  const sumMcWarn = (document.getElementById('filterMarket')?.value||'all')==='all' && hasMultiCurrency(allRecs) ? multiCurrencyWarning() : '';
   cc.innerHTML = `
-  ${sumMcWarn}
   <div style="background:linear-gradient(135deg,#4F46E5,#7C3AED);border-radius:12px;padding:20px 24px;color:#fff;margin-bottom:0">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
       <div>
