@@ -3600,6 +3600,8 @@ async function saveUser() {
       msg.style.color='#34d399'; msg.textContent='✓ User updated successfully.';
     } else {
       // Create user via secure SQL function
+      console.log('Calling create_user_with_profile RPC...');
+      console.log('email:', email, 'role:', role, 'clientIds:', clientIds);
       const rpcPromise = _SB.rpc('create_user_with_profile', {
         p_email: email, p_password: pw, p_name: name,
         p_role: role, p_client_ids: clientIds.length ? clientIds : []
@@ -3607,7 +3609,9 @@ async function saveUser() {
       const timeoutPromise = new Promise((_,reject) =>
         setTimeout(()=>reject(new Error('Request timed out after 15 seconds')), 15000)
       );
-      const { data: rpcData, error: rpcErr } = await Promise.race([rpcPromise, timeoutPromise]);
+      const rpcResult = await Promise.race([rpcPromise, timeoutPromise]);
+      console.log('RPC result:', JSON.stringify(rpcResult));
+      const { data: rpcData, error: rpcErr } = rpcResult;
       if (rpcErr) throw new Error(rpcErr.message || JSON.stringify(rpcErr));
 
       msg.style.color='#34d399'; msg.textContent='✓ User created — ' + email + ' / ' + pw;
