@@ -3588,20 +3588,27 @@ async function saveUser() {
   try {
     if (_editingUserId) {
       // Update existing user profile
-      const { error } = await _SB.from('profiles').update({
-        name, role,
-        client_id: clientIds[0] || null,
-        client_ids: clientIds
-      }).eq('id', _editingUserId);
+      const { error } = await Promise.race([
+        _SB.from('profiles').update({
+          name, role,
+          client_id: clientIds[0] || null,
+          client_ids: clientIds
+        }).eq('id', _editingUserId),
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error('Request timed out')),15000))
+      ]);
       if (error) throw error;
       msg.style.color='#34d399'; msg.textContent='✓ User updated successfully.';
     } else {
       // Create user via secure SQL function
-      const { data: rpcData, error: rpcErr } = await _SB.rpc('create_user_with_profile', {
+      const rpcPromise = _SB.rpc('create_user_with_profile', {
         p_email: email, p_password: pw, p_name: name,
         p_role: role, p_client_ids: clientIds.length ? clientIds : []
       });
-      if (rpcErr) throw rpcErr;
+      const timeoutPromise = new Promise((_,reject) =>
+        setTimeout(()=>reject(new Error('Request timed out after 15 seconds')), 15000)
+      );
+      const { data: rpcData, error: rpcErr } = await Promise.race([rpcPromise, timeoutPromise]);
+      if (rpcErr) throw new Error(rpcErr.message || JSON.stringify(rpcErr));
 
       msg.style.color='#34d399'; msg.textContent='✓ User created — ' + email + ' / ' + pw;
     }
