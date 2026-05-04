@@ -1419,46 +1419,104 @@ function renderSubView(c, recs, bizR, prodR, summR, allRecs) {
 }
 
 function renderOverview(cc, c, recs, bizR, prodR) {
-  const totS = bizR.reduce((s,r)=>s+toUSD(r.data.snapshot?.sales||0,r.market),0);
-  const totU = bizR.reduce((s,r)=>s+(r.data.snapshot?.units||0),0);
-  const totPU= prodR.reduce((s,r)=>s+(r.data.total_units||0),0);
-  const periods = [...new Set(bizR.map(r=>r.period))].sort();
   const marketFilter = document.getElementById('filterMarket')?.value || 'all';
+  const totS  = bizR.reduce((s,r)=>s+toUSD(r.data.snapshot?.sales||0,r.market),0);
+  const totU  = bizR.reduce((s,r)=>s+(r.data.snapshot?.units||0),0);
+  const totPU = prodR.reduce((s,r)=>s+(r.data.total_units||0),0);
+  const mkts  = [...new Set(bizR.map(r=>r.market))].sort().join(', ');
+
+  // Aggregate by period across markets
+  const periods = [...new Set(bizR.map(r=>r.period))].sort(periodSort);
+  const byPeriod = periods.map(p => {
+    const rows = bizR.filter(r=>r.period===p);
+    const sales   = rows.reduce((s,r)=>s+toUSD(r.data.snapshot?.sales||0,r.market),0);
+    const units   = rows.reduce((s,r)=>s+(r.data.snapshot?.units||0),0);
+    const sales25 = rows.reduce((s,r)=>s+toUSD(r.data.yoy?.sales_25||0,r.market),0);
+    const units25 = rows.reduce((s,r)=>s+(r.data.yoy?.units_25||0),0);
+    const salesYoY = sales25 ? ((sales-sales25)/sales25*100) : null;
+    const unitsYoY = units25 ? ((units-units25)/units25*100) : null;
+    return { period:p, sales, units, sales25, units25, salesYoY, unitsYoY };
+  });
+
   cc.innerHTML = `
   <div class="kpi-grid">
-    <div class="kpi-card green"><div class="kpi-label">Ordered sales</div><div class="kpi-value">${f$(totS)}</div><div class="kpi-sub">${bizR.length} period(s)</div></div>
-    <div class="kpi-card blue"><div class="kpi-label">Units ordered</div><div class="kpi-value">${fn(totU)}</div><div class="kpi-sub">Sales CSV</div></div>
-    <div class="kpi-card amber"><div class="kpi-label">Product units</div><div class="kpi-value">${fn(totPU)}</div><div class="kpi-sub">Business report CSV</div></div>
-    <div class="kpi-card violet"><div class="kpi-label">Markets</div><div class="kpi-value">${[...new Set(recs.map(r=>r.market))].join(', ')}</div><div class="kpi-sub">${periods.length} period(s) loaded</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Ordered Sales</div><div class="kpi-value">${f$(totS)}</div><div class="kpi-sub">${periods.length} period(s)</div></div>
+    <div class="kpi-card blue"><div class="kpi-label">Units Ordered</div><div class="kpi-value">${fn(totU)}</div><div class="kpi-sub">Sales CSV</div></div>
+    <div class="kpi-card orange"><div class="kpi-label">Product Units</div><div class="kpi-value">${fn(totPU)}</div><div class="kpi-sub">Business report CSV</div></div>
+    <div class="kpi-card purple"><div class="kpi-label">Markets</div><div class="kpi-value" style="font-size:13px;line-height:1.4">${mkts||marketFilter}</div><div class="kpi-sub">${periods.length} period(s) loaded</div></div>
     <div class="kpi-card"><div class="kpi-label">Records</div><div class="kpi-value">${recs.length}</div><div class="kpi-sub">${[...new Set(recs.map(r=>r.type))].length} report type(s)</div></div>
   </div>
-  <div class="row-2">
-    <div class="panel"><div class="panel-header"><span class="panel-title">Sales by period</span></div>
-      <div class="chart-container" style="height:200px"><canvas id="cOvS" role="img" aria-label="Sales by period">Sales.</canvas></div></div>
-    <div class="panel"><div class="panel-header"><span class="panel-title">Units by period</span></div>
-      <div class="chart-container" style="height:200px"><canvas id="cOvU" role="img" aria-label="Units by period">Units.</canvas></div></div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px;">
+    <div class="panel"><div class="panel-header"><span class="panel-title">Sales by Period</span></div>
+      <div class="panel-body" style="height:220px"><canvas id="ovSalesChart"></canvas></div></div>
+    <div class="panel"><div class="panel-header"><span class="panel-title">Units by Period</span></div>
+      <div class="panel-body" style="height:220px"><canvas id="ovUnitsChart"></canvas></div></div>
   </div>
-  <div class="panel"><div class="panel-header"><span class="panel-title">Period breakdown</span></div>
-  <div class="table-wrap"><table>
-    <thead><tr><th class="sortable" onclick="sortTable(this)">Period</th><th class="sortable" onclick="sortTable(this)">Market</th><th class="sortable" onclick="sortTable(this)">Type</th><th class="sortable" onclick="sortTable(this)"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ordered product sales from Sales Dashboard CSV</span></span></th><th class="sortable" onclick="sortTable(this)">Units</th><th class="sortable" onclick="sortTable(this)"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">% change vs same period last year</span></span></th><th class="sortable" onclick="sortTable(this)"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">% change in units vs same period last year</span></span></th></tr></thead>
-    <tbody>${[...bizR].sort((a,b)=>periodSort(a.period,b.period)).map(r=>`<tr>
-      <td><strong>${r.period}</strong></td>
-      <td><span class="chip chip-blue">${r.market}</span></td>
-      <td><span class="type-badge type-csv">Sales CSV</span></td>
-      <td style="text-align:right;font-weight:600;color:var(--green)">${fr$(r.data.snapshot?.sales||0,r)}</td>
-      <td style="text-align:right">${fn(r.data.snapshot?.units||0)}</td>
-      <td style="text-align:right">${yoyCell(r.data.yoy?.pct_sales||0)}</td>
-      <td style="text-align:right">${yoyCell(r.data.yoy?.pct_units||0)}</td>
-    </tr>`).join('')}</tbody>
-  </table></div></div>`;
-  setTimeout(()=>{
-    const byP={},byPU={};
-    bizR.forEach(r=>{byP[r.period]=(byP[r.period]||0)+(r.data.snapshot?.sales||0);byPU[r.period]=(byPU[r.period]||0)+(r.data.snapshot?.units||0);});
-    const k=Object.keys(byP).sort(periodSort);
-    dc('cOvS');dc('cOvU');
-    mc('cOvS',{type:'bar',data:{labels:k,datasets:[{data:k.map(p=>byP[p]),backgroundColor:'#4F46E5AA',borderColor:'#4F46E5',borderWidth:1,borderRadius:4}]},options:barOpts('$')});
-    mc('cOvU',{type:'bar',data:{labels:k,datasets:[{data:k.map(p=>byPU[p]),backgroundColor:'#05966988',borderColor:'#059669',borderWidth:1,borderRadius:4}]},options:barOpts('')});
-  },60);
+
+  <div class="panel" style="margin-top:0">
+    <div class="panel-header"><span class="panel-title">Period Breakdown</span></div>
+    <div class="panel-body" style="padding:0">
+      <div class="table-wrap"><table>
+        <thead><tr>
+          <th>Period</th>
+          <th style="text-align:right">Sales</th>
+          <th style="text-align:right">vs Prior Year</th>
+          <th style="text-align:right">Units</th>
+          <th style="text-align:right">vs Prior Year</th>
+          <th style="text-align:right">Sales YoY %</th>
+          <th style="text-align:right">Units YoY %</th>
+        </tr></thead>
+        <tbody>
+          ${byPeriod.map(r=>`
+            <tr>
+              <td><strong>${r.period}</strong></td>
+              <td style="text-align:right;font-weight:600;color:var(--green)">${f$(r.sales)}</td>
+              <td style="text-align:right;color:var(--muted)">${r.sales25?f$(r.sales25):'—'}</td>
+              <td style="text-align:right">${fn(r.units)}</td>
+              <td style="text-align:right;color:var(--muted)">${r.units25?fn(r.units25):'—'}</td>
+              <td style="text-align:right">${r.salesYoY!==null?yoyCell(r.salesYoY,true):'—'}</td>
+              <td style="text-align:right">${r.unitsYoY!==null?yoyCell(r.unitsYoY,true):'—'}</td>
+            </tr>`).join('')}
+          <tr style="font-weight:700;border-top:2px solid var(--border);background:var(--surface)">
+            <td>Total</td>
+            <td style="text-align:right;color:var(--green)">${f$(totS)}</td>
+            <td style="text-align:right;color:var(--muted)">${f$(byPeriod.reduce((s,r)=>s+r.sales25,0))}</td>
+            <td style="text-align:right">${fn(totU)}</td>
+            <td style="text-align:right;color:var(--muted)">${fn(byPeriod.reduce((s,r)=>s+r.units25,0))}</td>
+            <td style="text-align:right">${byPeriod.some(r=>r.salesYoY!==null)?yoyCell(byPeriod.reduce((s,r)=>s+r.sales25,0)?((totS-byPeriod.reduce((s,r)=>s+r.sales25,0))/byPeriod.reduce((s,r)=>s+r.sales25,0)*100):0,true):'—'}</td>
+            <td style="text-align:right">${byPeriod.some(r=>r.unitsYoY!==null)?yoyCell(byPeriod.reduce((s,r)=>s+r.units25,0)?((totU-byPeriod.reduce((s,r)=>s+r.units25,0))/byPeriod.reduce((s,r)=>s+r.units25,0)*100):0,true):'—'}</td>
+          </tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>`;
+
+  // Charts
+  const labels = byPeriod.map(r=>r.period);
+  const salesData = byPeriod.map(r=>r.sales);
+  const unitsData = byPeriod.map(r=>r.units);
+
+  const chartOpts = (label, color) => ({
+    type:'bar', data:{labels, datasets:[{label, data:salesData, backgroundColor:color+'99', borderColor:color, borderWidth:1}]},
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+      scales:{y:{ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}, grid:{color:'rgba(0,0,0,0.05)'}},
+              x:{grid:{display:false}}}}
+  });
+
+  dc('ovSalesChart'); dc('ovUnitsChart');
+  const sc = document.getElementById('ovSalesChart');
+  const uc = document.getElementById('ovUnitsChart');
+  if(sc) A.charts['ovSalesChart'] = new Chart(sc.getContext('2d'), {
+    type:'bar', data:{labels, datasets:[{label:'Sales', data:salesData, backgroundColor:'#7c3aed99', borderColor:'#7c3aed', borderWidth:1}]},
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+      scales:{y:{ticks:{callback:v=>'$'+(v>=1000?(v/1000).toFixed(0)+'k':v)}, grid:{color:'rgba(0,0,0,0.05)'}}, x:{grid:{display:false}}}}
+  });
+  if(uc) A.charts['ovUnitsChart'] = new Chart(uc.getContext('2d'), {
+    type:'bar', data:{labels, datasets:[{label:'Units', data:unitsData, backgroundColor:'#06b6d499', borderColor:'#06b6d4', borderWidth:1}]},
+    options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+      scales:{y:{ticks:{callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v}, grid:{color:'rgba(0,0,0,0.05)'}}, x:{grid:{display:false}}}}
+  });
 }
 
 function renderSales(cc, c, bizR) {
