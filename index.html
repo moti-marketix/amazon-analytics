@@ -300,7 +300,7 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
   <div class="sb-label" style="margin-top:6px">Clients</div>
   <div class="client-list" id="clientList"></div>
   <div class="sb-bottom">
-    <button class="btn btn-primary btn-sm btn-full" onclick="openAddClient()">+ Add client</button>
+    <button class="btn btn-primary btn-sm btn-full" id="btnAddClient" onclick="openAddClient()" style="display:none">+ Add client</button>
     <button class="btn btn-sm btn-full" onclick="exportData()">⬇ Export data</button>
     <label style="width:100%;display:block">
       <input type="file" id="importInput" accept=".json" onchange="importData(event)" style="display:none">
@@ -3842,10 +3842,12 @@ async function _onSignIn(user){
   const nu=document.getElementById('navUsers');
   const rb=document.getElementById('btnReset');
   const db=document.getElementById('btnDeleteAll');
+  const ab=document.getElementById('btnAddClient');
   if(nb)nb.style.display=_role==='admin'?'flex':'none';
   if(nu)nu.style.display=_role==='admin'?'flex':'none';
   if(rb)rb.style.display=_role==='admin'?'block':'none';
   if(db)db.style.display=_role==='admin'?'block':'none';
+  if(ab)ab.style.display=_role==='admin'?'block':'none';
   const ue=document.getElementById('sbUserEmail');
   if(ue)ue.textContent=user.email;
   document.getElementById('loginOverlay').style.display='none';
