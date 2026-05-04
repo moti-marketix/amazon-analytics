@@ -2472,13 +2472,14 @@ function renderAnnual(cc, c, allRecs) {
     sby[yr][mon]=(sby[yr][mon]||0)+toUSD(r.data.snapshot.sales,r.market);
     uby[yr][mon]=(uby[yr][mon]||0)+r.data.snapshot.units;
   });
-  // Fill 2025 from yoy fields where we don't have direct records
+  // Fill 2025 from yoy fields — accumulate across all markets
   bizAll.forEach(r=>{
     const parts=r.period.split(' '); if(parts.length!==2||parts[1]!=='2026') return;
     const mon=parts[0]; const yoy=r.data.yoy||{};
-    if(yoy.sales_25&&!(sby['2025']||{})[mon]){
+    if(yoy.sales_25){
       if(!sby['2025']) sby['2025']={}; if(!uby['2025']) uby['2025']={};
-      sby['2025'][mon]=toUSD(yoy.sales_25,r.market); uby['2025'][mon]=yoy.units_25||0;
+      sby['2025'][mon]=(sby['2025'][mon]||0)+toUSD(yoy.sales_25,r.market);
+      uby['2025'][mon]=(uby['2025'][mon]||0)+(yoy.units_25||0);
     }
   });
 
