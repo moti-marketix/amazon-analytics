@@ -3599,20 +3599,23 @@ async function saveUser() {
       if (error) throw error;
       msg.style.color='#34d399'; msg.textContent='✓ User updated successfully.';
     } else {
-      // Create user via secure SQL function
-      console.log('Calling create_user_with_profile RPC...');
-      console.log('email:', email, 'role:', role, 'clientIds:', clientIds);
-      const rpcPromise = _SB.rpc('create_user_with_profile', {
-        p_email: email, p_password: pw, p_name: name,
-        p_role: role, p_client_ids: clientIds.length ? clientIds : []
+      // Step 1: Create auth user via signUp
+      console.log('Creating user via signUp...');
+      const { data: signUpData, error: signUpErr } = await _SB.auth.signUp({
+        email, password: pw,
+        options: { data: { name } }
       });
-      const timeoutPromise = new Promise((_,reject) =>
-        setTimeout(()=>reject(new Error('Request timed out after 15 seconds')), 15000)
-      );
-      const rpcResult = await Promise.race([rpcPromise, timeoutPromise]);
-      console.log('RPC result:', JSON.stringify(rpcResult));
-      const { data: rpcData, error: rpcErr } = rpcResult;
-      if (rpcErr) throw new Error(rpcErr.message || JSON.stringify(rpcErr));
+      if (signUpErr) throw new Error(signUpErr.message);
+      if (!signUpData?.user?.id) throw new Error('User creation failed — no user ID returned');
+      console.log('User created:', signUpData.user.id);
+
+      // Step 2: Update profile with role and client assignment
+      const { error: profErr } = await _SB.from('profiles').update({
+        name, role,
+        client_id: clientIds[0] || null,
+        client_ids: clientIds
+      }).eq('id', signUpData.user.id);
+      if (profErr) console.warn('Profile update error:', profErr.message);
 
       msg.style.color='#34d399'; msg.textContent='✓ User created — ' + email + ' / ' + pw;
     }
