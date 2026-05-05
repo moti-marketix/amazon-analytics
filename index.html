@@ -3599,15 +3599,33 @@ async function saveUser() {
       if (error) throw error;
       msg.style.color='#34d399'; msg.textContent='✓ User updated successfully.';
     } else {
-      // Create user via SQL function (direct insert, no auth flow overhead)
-      console.log('Creating user...');
-      const { data: newId, error: createErr } = await _SB.rpc('create_user_with_profile', {
-        p_email: email, p_password: pw, p_name: name,
-        p_role: role, p_client_ids: clientIds.length ? clientIds : []
+      // Create user: signUp + restore admin session + update profile
+      console.log('Creating user via signUp...');
+      const { data: sessionData } = await _SB.auth.getSession();
+      const adminSession = sessionData?.session;
+
+      const { data: signUpData, error: signUpErr } = await _SB.auth.signUp({
+        email, password: pw, options: { data: { name } }
       });
-      console.log('Create result:', newId, createErr);
-      if (createErr) throw new Error(createErr.message || JSON.stringify(createErr));
-      if (!newId) throw new Error('No user ID returned');
+      if (signUpErr) throw new Error(signUpErr.message);
+      const newUserId = signUpData?.user?.id;
+      if (!newUserId) throw new Error('User creation failed — no ID returned');
+      console.log('User created:', newUserId);
+
+      // Restore admin session so we stay logged in
+      if (adminSession) {
+        await _SB.auth.setSession({
+          access_token: adminSession.access_token,
+          refresh_token: adminSession.refresh_token
+        });
+      }
+
+      // Update profile with role and client assignment
+      await _SB.from('profiles').update({
+        name, role,
+        client_id: clientIds[0] || null,
+        client_ids: clientIds
+      }).eq('id', newUserId);
 
       msg.style.color='#34d399'; msg.textContent='✓ User created — ' + email + ' / ' + pw;
     }
