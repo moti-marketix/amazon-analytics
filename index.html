@@ -2519,6 +2519,7 @@ function renderProductYoY(cc, c, recs) {
 
 function renderAnnual(cc, c, allRecs) {
   const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  window._annRecs = allRecs;
   const bizAll = allRecs.filter(r=>r.type==='business_csv'&&r.data&&r.data.snapshot);
   const txnAll = allRecs.filter(r=>r.type==='transaction_csv'&&r.data&&r.data.fba_sales);
 
@@ -2625,6 +2626,35 @@ function renderAnnual(cc, c, allRecs) {
       <thead><tr><th class="sortable" onclick="sortTable(this)" style="text-align:right">Month</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Sales 2025</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Sales 2026</th><th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">% change vs prior year</span></span></th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units 2025</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units 2026</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units Growth</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">FBA Sales</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Advertising</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">TACOS</th></tr></thead>
       <tbody>${trows}</tbody>
     </table></div>
+  </div>
+
+  <div class="panel" style="margin-top:0" id="annMktPanel">
+    <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;">
+      <span class="panel-title">Market Breakdown &mdash; YoY</span>
+      <select id="annMktSel" onchange="renderAnnualMarketBreakdown()"
+        style="font-size:12px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--ink);">
+        <option value="all">All Periods</option>
+        <option value="Jan">January</option>
+        <option value="Feb">February</option>
+        <option value="Mar">March</option>
+        <option value="Apr">April</option>
+        <option value="May">May</option>
+        <option value="Jun">June</option>
+        <option value="Jul">July</option>
+        <option value="Aug">August</option>
+        <option value="Sep">September</option>
+        <option value="Oct">October</option>
+        <option value="Nov">November</option>
+        <option value="Dec">December</option>
+        <option value="Q1">Q1 (Jan-Mar)</option>
+        <option value="Q2">Q2 (Apr-Jun)</option>
+        <option value="Q3">Q3 (Jul-Sep)</option>
+        <option value="Q4">Q4 (Oct-Dec)</option>
+      </select>
+    </div>
+    <div class="panel-body" style="padding:0" id="annMktBody">
+      <div style="text-align:center;padding:20px;color:var(--muted);font-size:12px;">Select a period above</div>
+    </div>
   </div>`;
 
   setTimeout(()=>{
@@ -2656,7 +2686,78 @@ function renderAnnual(cc, c, allRecs) {
     ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:10},boxWidth:10}}},
       scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',font:{size:10}}},x:{ticks:{font:{size:10}}}}}});
   },60);
+  setTimeout(renderAnnualMarketBreakdown,100);
 }
+function renderAnnualMarketBreakdown() {
+  var body = document.getElementById('annMktBody');
+  if (!body) return;
+  var allRecs = window._annRecs;
+  if (!allRecs) return;
+  var selEl = document.getElementById('annMktSel');
+  var sel = selEl ? selEl.value : 'all';
+  var QMAP = {Q1:['Jan','Feb','Mar'],Q2:['Apr','May','Jun'],Q3:['Jul','Aug','Sep'],Q4:['Oct','Nov','Dec']};
+
+  function matchPeriod(p) {
+    if (sel === 'all') return true;
+    if (QMAP[sel]) return QMAP[sel].some(function(m){return p.startsWith(m);});
+    return p.startsWith(sel);
+  }
+
+  var biz26 = allRecs.filter(function(r){
+    return r.type==='business_csv'&&r.data&&r.data.snapshot&&r.period.includes('2026')&&matchPeriod(r.period);
+  });
+  var markets = [...new Set(biz26.map(function(r){return r.market;}))].sort();
+
+  if (!markets.length) {
+    body.innerHTML = '<div style="padding:20px;color:var(--muted);font-size:12px;text-align:center;">No data for selected period</div>';
+    return;
+  }
+
+  var rows = markets.map(function(mkt) {
+    var s26 = biz26.filter(function(r){return r.market===mkt;}).reduce(function(s,r){return s+toUSD(r.data.snapshot.sales||0,mkt);},0);
+    var s25 = biz26.filter(function(r){return r.market===mkt;}).reduce(function(s,r){return s+toUSD((r.data.yoy&&r.data.yoy.sales_25)||0,mkt);},0);
+    var diff = s26-s25;
+    var pct  = s25?(diff/s25*100):null;
+    return {mkt:mkt,s26:s26,s25:s25,diff:diff,pct:pct};
+  });
+
+  var totS26=rows.reduce(function(s,r){return s+r.s26;},0);
+  var totS25=rows.reduce(function(s,r){return s+r.s25;},0);
+  var totDiff=totS26-totS25;
+  var totPct=totS25?(totDiff/totS25*100):null;
+
+  function fmtChg(d,p) {
+    if(p===null) return '<span style="color:var(--muted)">—</span>';
+    var col=d>=0?'var(--green)':'var(--red)';
+    return '<span style="color:'+col+'">'+(d>=0?'▲':'▼')+' '+f$(Math.abs(d))+'</span>';
+  }
+  function fmtPct(p) {
+    if(p===null) return '<span style="color:var(--muted)">—</span>';
+    var col=p>=0?'var(--green)':'var(--red)';
+    return '<span style="color:'+col+';font-weight:600">'+(p>=0?'▲':'▼')+' '+Math.abs(p).toFixed(1)+'%</span>';
+  }
+
+  var html = '<div class="table-wrap"><table>';
+  html += '<thead><tr><th>Market</th><th style="text-align:right">2025 Revenue</th><th style="text-align:right">2026 Revenue</th><th style="text-align:right">$ Change</th><th style="text-align:right">% Change</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    html += '<tr>';
+    html += '<td><span class="chip chip-blue">'+r.mkt+'</span></td>';
+    html += '<td style="text-align:right;color:var(--muted)">'+(r.s25?f$(r.s25):'—')+'</td>';
+    html += '<td style="text-align:right;font-weight:600;color:var(--green)">'+f$(r.s26)+'</td>';
+    html += '<td style="text-align:right">'+fmtChg(r.diff,r.pct)+'</td>';
+    html += '<td style="text-align:right">'+fmtPct(r.pct)+'</td>';
+    html += '</tr>';
+  });
+  html += '<tr style="font-weight:700;border-top:2px solid var(--border);background:var(--surface)">';
+  html += '<td><strong>Total</strong></td>';
+  html += '<td style="text-align:right;color:var(--muted)">'+(totS25?f$(totS25):'—')+'</td>';
+  html += '<td style="text-align:right;font-weight:700;color:var(--green)">'+f$(totS26)+'</td>';
+  html += '<td style="text-align:right">'+fmtChg(totDiff,totPct)+'</td>';
+  html += '<td style="text-align:right">'+fmtPct(totPct)+'</td>';
+  html += '</tr></tbody></table></div>';
+  body.innerHTML = html;
+}
+
 
 function exportPDF() {
   const c = S.clients.find(x => x.id === A.activeClientId);
@@ -2997,14 +3098,18 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
 function renderAdvertising(cc, c, allRecs) {
   const txn26 = allRecs.filter(r=>r.type==='transaction_csv'&&r.data&&r.period.includes('2026'))
                        .sort((a,b)=>periodSort(a.period,b.period));
+  const econ26adv = allRecs.filter(r=>r.type==='economics_csv'&&r.data&&r.period.includes('2026'))
+                          .sort((a,b)=>periodSort(a.period,b.period));
+  // Use economics_csv for adv if available, otherwise transaction_csv
+  const advSource = econ26adv.length ? econ26adv : txn26;
 
-  if (!txn26.length) {
+  if (!txn26.length && !econ26adv.length) {
     cc.innerHTML = emptyPanel('No advertising data',
       'Upload Transaction Report CSVs to see advertising metrics. Ad spend is extracted automatically from the Cost of Advertising line items.');
     return;
   }
 
-  const totAdv   = txn26.reduce((s,r)=>s+Math.abs(toUSD(r.data.adv||0,r.market)),0);
+  const totAdv   = advSource.reduce((s,r)=>s+Math.abs(toUSD(r.data.adv||0,r.market)),0);
   const totFba   = txn26.reduce((s,r)=>s+toUSD(r.data.fba_sales||0,r.market),0);
   const totInc   = txn26.reduce((s,r)=>s+toUSD(r.data.income||0,r.market),0);
   const avgTacos = totFba ? (totAdv/totFba*100) : 0;
