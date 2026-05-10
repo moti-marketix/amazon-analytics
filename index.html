@@ -612,12 +612,12 @@ const MARKETS = ['USA','UK','DE','FR','IT','ES','CA','AU','JP','UAE','MX','SE','
 
 // ── STATE ─────────────────────────────────────────────────────
 const CLIENT_REGISTRY = [
-  {id:'c_yankee_001',        display:'Yankee',         legal:'Yankee',         color:'#7c3aed', markets:['USA','CA','DE','FR','IT','ES']},
-  {id:'c_monkeybusiness_001',display:'Monkey Business',legal:'Monkey Business',color:'#ea580c', markets:['USA','CA','DE','FR','IT','ES','UK']},
-  {id:'c_peleg_001',         display:'Peleg Design',   legal:'Peleg Design',   color:'#0891b2', markets:['USA','CA','DE','FR','IT','ES','UK']},
-  {id:'c_rhino_001',         display:'Rhino',          legal:'Rhino',          color:'#dc2626', markets:['USA','CA','DE','FR','IT','ES','UK']},
-  {id:'c_mava_001',          display:'Mava Sports',    legal:'Mava Sports',    color:'#16a34a', markets:['USA','CA','DE','FR','IT','ES']},
-  {id:'c_jeanrachel_001',    display:'Jean Rachel',    legal:'Jean Rachel',    color:'#db2777', markets:['USA','CA','DE','FR','IT','ES','UK']},
+  {id:'c_yankee_001',        display:'Yankee',         legal:'Yankee',         color:'#7c3aed', markets:['USA','CA','DE','FR','IT','ES'],           aliases:['yankee']},
+  {id:'c_monkeybusiness_001',display:'Monkey Business',legal:'Monkey Business',color:'#ea580c', markets:['USA','CA','DE','FR','IT','ES','UK'],        aliases:['monkey','monkeybusiness','monkey business']},
+  {id:'c_peleg_001',         display:'Peleg Design',   legal:'Peleg Design',   color:'#0891b2', markets:['USA','CA','DE','FR','IT','ES','UK'],        aliases:['peleg','peleg design']},
+  {id:'c_rhino_001',         display:'Rhino',          legal:'Rhino',          color:'#dc2626', markets:['USA','CA','DE','FR','IT','ES','UK'],        aliases:['rhino','myrhino','rhinoproducts','myrhinoproducts','my rhino','rhino products','my rhino products']},
+  {id:'c_mava_001',          display:'Mava Sports',    legal:'Mava Sports',    color:'#16a34a', markets:['USA','CA','DE','FR','IT','ES'],             aliases:['mava','mavasports','mava sports']},
+  {id:'c_jeanrachel_001',    display:'Jean Rachel',    legal:'Jean Rachel',    color:'#db2777', markets:['USA','CA','DE','FR','IT','ES','UK'],        aliases:['jeanrachel','jean rachel','jean']},
 ];
 let S = { clients:[], records:[] };
 let A = {
@@ -2090,17 +2090,33 @@ function resetToDemo() {
 }
 const BULK_MONTHS={jan:'Jan',january:'Jan',feb:'Feb',february:'Feb',mar:'Mar',march:'Mar',apr:'Apr',april:'Apr',may:'May',jun:'Jun',june:'Jun',jul:'Jul',july:'Jul',aug:'Aug',august:'Aug',sep:'Sep',september:'Sep',oct:'Oct',october:'Oct',nov:'Nov',november:'Nov',dec:'Dec',december:'Dec'};
 const BULK_MKT_SET=new Set(['USA','CA','UK','DE','FR','IT','ES','MULTI']);
-function bulkTokens(fn){return fn.replace(/\.csv$/i,'').split(/[-_.\/\s]+/).map(t=>t.trim()).filter(Boolean);}
+function bulkTokens(fn){return fn.replace(/\.(csv|pdf)$/i,'').split(/[-_.\/\s]+/).map(t=>t.trim()).filter(t=>t&&t!=='-');}
 function bulkMatchClient(tokens){
-  const tl=tokens.map(t=>t.toLowerCase());let best=null,bs=0;
+  const tl=tokens.map(t=>t.toLowerCase());
+  const joined=tl.join(' '); // full filename tokens as a string for multi-word alias matching
+  let best=null,bs=0;
   for(const c of CLIENT_REGISTRY){
-    const names=[c.display,c.legal||'',c.id||''];
-    const words=names.join(' ').toLowerCase().split(/[\s_\-]+/).filter(w=>w.length>1);
-    const joined=names.map(n=>n.toLowerCase().replace(/\s+/g,''));
     let sc=0;
+    // Check aliases first — high confidence (20 pts)
+    const aliases=(c.aliases||[]).map(a=>a.toLowerCase());
+    for(const alias of aliases){
+      // Multi-word alias: check if all words appear as consecutive tokens
+      const awords=alias.split(/\s+/);
+      if(awords.length>1){
+        if(joined.includes(alias))sc+=20;
+      } else {
+        if(tl.includes(alias))sc+=20;
+        // Also check if any token contains this alias (e.g. "myrhinoproducts" contains "rhino")
+        else if(tl.some(t=>t.includes(alias)&&alias.length>3))sc+=12;
+      }
+    }
+    // Fallback word scoring
+    const names=[c.display,c.legal||''];
+    const words=names.join(' ').toLowerCase().split(/[\s_\-]+/).filter(w=>w.length>1);
+    const joinedNames=names.map(n=>n.toLowerCase().replace(/\s+/g,''));
     for(const t of tl){if(words.includes(t)&&t.length>2)sc+=10;}
-    for(const t of tl){if(t.length>3&&joined.some(n=>n.includes(t)))sc+=8;}
-    for(const n of joined){if(n.length>3&&tl.some(t=>t.includes(n)))sc+=8;}
+    for(const t of tl){if(t.length>3&&joinedNames.some(n=>n.includes(t)))sc+=8;}
+    for(const n of joinedNames){if(n.length>3&&tl.some(t=>t.includes(n)))sc+=8;}
     for(const w of words){if(w.length>3&&tl.some(t=>t.includes(w)||w.includes(t)))sc+=5;}
     if(sc>bs){bs=sc;best=c;}
   }
