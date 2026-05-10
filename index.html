@@ -1185,6 +1185,13 @@ function parseSummaryPDF(text) {
     bank:         find('Transfers to bank account\\s+(' + num + ')'),
     charges:      find('Charges to credit card and other debt recovery\\s+(' + num + ')'),
   };
+  // PDF text scrambles column layout — Cost of Advertising often parses as 0
+  // Reliable fallback: the adv value consistently appears on the line after
+  // "Disburse to Amazon Gift Card balance" in the scrambled text output
+  if (!data.adv) {
+    const advAlt = find('Disburse to Amazon Gift Card balance\\s+[\\d.]+\\s*\\n?(-[\\d,]+\\.\\d{2})');
+    if (advAlt) data.adv = advAlt;
+  }
   // Transfers to bank is negative in PDF (Amazon debit) — store as positive
   if (data.bank < 0) data.bank = Math.abs(data.bank);
   // Charges is positive in PDF — store as negative
