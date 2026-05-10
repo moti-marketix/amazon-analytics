@@ -442,14 +442,14 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
     <div class="screen" id="screen-bulk">
       <div class="panel"><div class="panel-header"><span class="panel-title">Bulk Import</span></div>
       <div class="panel-body">
-        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Drop all your CSV files at once. The importer detects client, market, period and type from the filename — in any order. Review then click <strong>Import All</strong>.</p>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 12px">Drop all your CSV and PDF files at once. The importer detects client, market, period and type from the filename — in any order. Review then click <strong>Import All</strong>.</p>
         <div id="bulkDrop" style="border:2px dashed var(--border);border-radius:10px;padding:32px;text-align:center;cursor:pointer;transition:background .15s;margin-bottom:14px"
           onclick="document.getElementById('bulkFileInput').click()"
           ondragover="event.preventDefault();this.style.background='var(--accent-lt)'"
           ondragleave="this.style.background=''"
           ondrop="event.preventDefault();this.style.background='';bulkHandleFiles(event.dataTransfer.files)">
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" style="width:32px;height:32px;margin-bottom:8px"><path d="M12 15V3M8 7l4-4 4 4M3 17v2a2 2 0 002 2h14a2 2 0 002-2v-2"/></svg>
-          <div style="font-size:13px;font-weight:600;color:var(--accent)">Drop CSV files here</div>
+          <div style="font-size:13px;font-weight:600;color:var(--accent)">Drop CSV &amp; PDF files here</div>
           <div style="font-size:11px;color:var(--muted);margin-top:4px">or click to browse</div>
         </div>
         <input type="file" id="bulkFileInput" accept=".csv,.pdf" multiple style="display:none" onchange="bulkHandleFiles(this.files)">
