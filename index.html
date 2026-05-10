@@ -2274,17 +2274,19 @@ function renderProductYoY(cc, c, recs) {
   // Aggregate: for each SKU sum units/sales/sessions across all periods in the pair
   const aggSkuMap = (skuMap, recs_list, periods) => {
     periods.forEach(period => {
-      const rec = recs_list.find(r=>r.period===period);
-      if (!rec) return;
-      rec.data.parents.forEach(p => {
-        (p.children||[]).forEach(c => {
-          if (!skuMap[c.sku]) skuMap[c.sku] = {...c, units:0, sales:0, sessions:0, parent:p.parent, parentTitle:p.title};
-          skuMap[c.sku].units    += c.units    || 0;
-          skuMap[c.sku].sales    += c.sales    || 0;
-          skuMap[c.sku].sessions += c.sessions || 0;
-          // Keep parent from most recent period
-          skuMap[c.sku].parent = p.parent;
-          skuMap[c.sku].parentTitle = p.title;
+      // filter (not find) to get ALL markets for this period
+      const recsForPeriod = recs_list.filter(r=>r.period===period);
+      if (!recsForPeriod.length) return;
+      recsForPeriod.forEach(rec => {
+        rec.data.parents.forEach(p => {
+          (p.children||[]).forEach(c => {
+            if (!skuMap[c.sku]) skuMap[c.sku] = {...c, units:0, sales:0, sessions:0, parent:p.parent, parentTitle:p.title};
+            skuMap[c.sku].units    += c.units    || 0;
+            skuMap[c.sku].sales    += toUSD(c.sales||0, rec.market);
+            skuMap[c.sku].sessions += c.sessions || 0;
+            skuMap[c.sku].parent = p.parent;
+            skuMap[c.sku].parentTitle = p.title;
+          });
         });
       });
     });
@@ -2949,9 +2951,20 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
   const prevSales = prev?.data?.snapshot?.sales || 0;
   const momGrowth = prevSales ? ((latSales-prevSales)/prevSales*100) : null;
 
-  // Top products
-  const latProd = prod26.find(r=>r.period===latest?.period);
-  const top3 = latProd ? [...latProd.data.parents].sort((a,b)=>b.units-a.units).slice(0,3) : [];
+  // Top products — aggregate all markets for latest period
+  const latProds = prod26.filter(r=>r.period===latest?.period);
+  const top3 = (() => {
+    if (!latProds.length) return [];
+    const asinMap = {};
+    latProds.forEach(rec => {
+      rec.data.parents.forEach(p => {
+        if (!asinMap[p.parent]) asinMap[p.parent] = {parent:p.parent, title:p.title, units:0, sales:0};
+        asinMap[p.parent].units += p.units || 0;
+        asinMap[p.parent].sales += toUSD(p.sales||0, rec.market);
+      });
+    });
+    return Object.values(asinMap).sort((a,b)=>b.units-a.units).slice(0,3);
+  })();
 
   // TACOS health
   const tacosColor = avgTacos > 20 ? 'var(--red)' : avgTacos > 12 ? 'var(--amber)' : 'var(--green)';
@@ -3049,13 +3062,17 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
       <tbody>
         ${sorted26.map(r=>{
           const sn=r.data.snapshot||{}, yy=r.data.yoy||{};
-          const tx=txn26.find(t=>t.period===r.period);
-          const econ=econ26.find(e=>e.period===r.period);
           const sg=yy.sales_25?((sn.sales-yy.sales_25)/yy.sales_25*100):null;
           const ug=yy.units_25?((sn.units-yy.units_25)/yy.units_25*100):null;
-          const advVal=econ?(econ.data.adv||0):tx?(tx.data.adv||0):0;
-          const hasAdv=!!(econ||tx);
-          const tc=hasAdv&&sn.sales?Math.abs(advVal)/(sn.sales)*100:null;
+          // Sum ALL markets for this period (fix: was .find which only grabbed first market)
+          const econPeriod=econ26.filter(e=>e.period===r.period);
+          const txPeriod=txn26.filter(t=>t.period===r.period);
+          const hasEcon=econPeriod.length>0, hasTx=txPeriod.length>0;
+          const advVal=hasEcon
+            ? econPeriod.reduce((s,e)=>s+toUSD(Math.abs(e.data.adv||0),e.market),0)
+            : hasTx ? txPeriod.reduce((s,t)=>s+toUSD(Math.abs(t.data.adv||0),t.market),0) : 0;
+          const hasAdv=hasEcon||hasTx;
+          const tc=hasAdv&&sn.sales?advVal/sn.sales*100:null;
           const tcColor=tc>20?'var(--red)':tc>12?'var(--amber)':'var(--green)';
           return `<tr>
             <td><strong>${r.period}</strong></td>
@@ -3063,7 +3080,7 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
             <td style="text-align:right">${fn(sn.units||0)}</td>
             <td style="text-align:right">${sg!==null?yoyCell(sg):'—'}</td>
             <td style="text-align:right">${ug!==null?yoyCell(ug):'—'}</td>
-            ${hasAdv?`<td style="text-align:right;color:var(--red)">${fs$(Math.abs(advVal))}</td>
+            ${hasAdv?`<td style="text-align:right;color:var(--red)">${fs$(advVal)}</td>
               <td style="text-align:right;font-weight:600;color:${tcColor}">${tc!==null?tc.toFixed(1)+'%':'—'}</td>`:'<td>—</td><td>—</td>'}
           </tr>`;
         }).join('')}
