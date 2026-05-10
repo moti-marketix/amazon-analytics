@@ -1898,31 +1898,50 @@ function buildProdView(cc, c, prodR, sel) {
 }
 
 function renderFinancials(cc, c, summR) {
-  if (!summR.length) { cc.innerHTML=emptyPanel('No summary PDF data','Upload a Transaction Report CSV (from Payments → Transaction View → Download) or a Summary PDF for '+c.display+'. When you select "Amazon Summary PDF" as the report type, a form will open for you to verify and enter the figures.'); return; }
+  // Split sources: transaction for everything, priority chain for ad spend only
+  const txnR  = summR.filter(r=>r.type==='transaction_csv'&&r.data);
+  const econR = summR.filter(r=>r.type==='economics_csv'&&r.data);
+  const pdfR  = summR.filter(r=>r.type==='summary_pdf'&&r.data);
 
-  // Aggregate all markets per period into single rows
-  const allPeriods = [...new Set(summR.map(r=>r.period))].sort(periodSort);
-  const get = (r,k) => r.data?.[k] || 0;
+  if (!txnR.length && !econR.length && !pdfR.length) {
+    cc.innerHTML=emptyPanel('No financial data','Upload Transaction Report CSVs for '+c.display+' to see financials.');
+    return;
+  }
 
-  // For each period, sum all markets (with FX conversion for monetary fields)
-  const MONEY_KEYS = ['income','expenses','fba_sales','refunds','inv_credit','vine','shipping','liquidation','selling_fees','tx_fees','inbound','adv','adjustments','service_fees','refund_admin','liq_fees','bank','charges'];
+  // All periods from transaction records (primary source)
+  const allPeriods = [...new Set(txnR.map(r=>r.period))].sort(periodSort);
+
+  if (!allPeriods.length) {
+    cc.innerHTML=emptyPanel('No transaction data','Upload Transaction Report CSVs for '+c.display+'. Financial data comes from transaction reports.');
+    return;
+  }
+
+  const MONEY_KEYS = ['income','expenses','fba_sales','refunds','inv_credit','vine','shipping','liquidation','selling_fees','tx_fees','inbound','adjustments','service_fees','refund_admin','liq_fees','bank','charges'];
+
+  // Aggregate transaction data per period across all markets
   const aggByPeriod = allPeriods.map(p => {
-    const recs = summR.filter(r=>r.period===p);
+    const recs = txnR.filter(r=>r.period===p);
     const agg = {period:p, data:{}};
     MONEY_KEYS.forEach(k => {
-      agg.data[k] = recs.reduce((s,r)=>s+toUSD(get(r,k),r.market),0);
+      agg.data[k] = recs.reduce((s,r)=>s+toUSD(r.data[k]||0,r.market),0);
     });
+    // Ad spend: priority summary_pdf → economics_csv → transaction_csv
+    const pdfP  = pdfR.filter(r=>r.period===p);
+    const econP = econR.filter(r=>r.period===p);
+    agg.data.adv = pdfP.length
+      ? pdfP.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0) * -1
+      : econP.length
+        ? econP.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0) * -1
+        : recs.reduce((s,r)=>s+toUSD(r.data.adv||0,r.market),0);
     return agg;
   });
 
-  const sorted = aggByPeriod;
+  const sorted  = aggByPeriod;
   const periods = allPeriods;
 
-  // Build income/expense detail rows across all periods
   const finRow = (label, key, indent=false) => {
     const vals = sorted.map(r => r.data[key]||0);
-    const anyVal = vals.some(v=>v!==0);
-    if (!anyVal) return '';
+    if (!vals.some(v=>v!==0)) return '';
     const tot = vals.reduce((s,v)=>s+v,0);
     return `<tr${indent?" class='row-indent'":""}>
       <td${indent?' style="padding-left:22px;color:var(--muted)"':""}>${label}</td>
@@ -1939,25 +1958,29 @@ function renderFinancials(cc, c, summR) {
       <td style="color:#fff;font-weight:700;text-align:right">${f$(tot)}</td>
     </tr>`;
   };
-
   const tacosRow = () => {
     const vals = sorted.map(r => {
-      const adv = Math.abs(r.data.adv||0); const fba = r.data.fba_sales||0;
-      return fba ? (adv/fba*100) : 0;
+      const adv=Math.abs(r.data.adv||0), fba=r.data.fba_sales||0;
+      return fba?(adv/fba*100):0;
     });
-    const totAdv = sorted.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
-    const totFba = sorted.reduce((s,r)=>s+(r.data.fba_sales||0),0);
-    const totTc = totFba ? totAdv/totFba*100 : 0;
-    const tcell = v => { const col=v<15?'var(--green)':v<25?'var(--amber)':'var(--red)'; return `<td style="text-align:right;color:${col};font-weight:700">${v.toFixed(1)}%</td>`; };
+    const totAdv=sorted.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
+    const totFba=sorted.reduce((s,r)=>s+(r.data.fba_sales||0),0);
+    const totTc=totFba?totAdv/totFba*100:0;
+    const tcell=v=>{const col=v<15?'var(--green)':v<25?'var(--amber)':'var(--red)';return `<td style="text-align:right;color:${col};font-weight:700">${v.toFixed(1)}%</td>`;};
     return `<tr><td style="font-weight:600">TACOS</td>${vals.map(tcell).join('')}${tcell(totTc)}</tr>`;
   };
 
+  const totIncome  = sorted.reduce((s,r)=>s+(r.data.income||0),0);
+  const totExpenses= sorted.reduce((s,r)=>s+(r.data.expenses||0),0);
+  const totFba     = sorted.reduce((s,r)=>s+(r.data.fba_sales||0),0);
+  const totAdv     = sorted.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
+
   cc.innerHTML=`
   <div class="kpi-grid">
-    <div class="kpi-card green"><div class="kpi-label">Total Income</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+(r.data.income||0),0))}</div><div class="kpi-sub">${sorted.length} period(s)</div></div>
-    <div class="kpi-card red"><div class="kpi-label">Total Expenses</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+(r.data.expenses||0),0))}</div><div class="kpi-sub">All fees</div></div>
-    <div class="kpi-card amber"><div class="kpi-label">FBA Product Sales</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+(r.data.fba_sales||0),0))}</div><div class="kpi-sub">Gross product sales</div></div>
-    <div class="kpi-card violet"><div class="kpi-label">Cost of Advertising</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+(r.data.adv||0),0))}</div><div class="kpi-sub">Total ad spend</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Total Income</div><div class="kpi-value">${f$(totIncome)}</div><div class="kpi-sub">${sorted.length} period(s)</div></div>
+    <div class="kpi-card red"><div class="kpi-label">Total Expenses</div><div class="kpi-value">${f$(totExpenses)}</div><div class="kpi-sub">All fees</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">FBA Product Sales</div><div class="kpi-value">${f$(totFba)}</div><div class="kpi-sub">Gross product sales</div></div>
+    <div class="kpi-card violet"><div class="kpi-label">Cost of Advertising</div><div class="kpi-value">${f$(-totAdv)}</div><div class="kpi-sub">Ad spend (priority source)</div></div>
   </div>
   <div class="row-2">
     <div class="panel"><div class="panel-header"><span class="panel-title">Income trend</span></div>
