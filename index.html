@@ -3044,17 +3044,18 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Units</th>
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Sales YoY</th>
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Units YoY</th>
-        ${txn26.length?'<th class="sortable" onclick="sortTable(this)" style="text-align:right">FBA Sales</th><th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Amazon advertising charges</span></span></th><th class="sortable" onclick="sortTable(this)" style="text-align:right">TACOS</th>':''}
+        ${(txn26.length||econ26.length)?'<th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ad spend from SKU Economics (preferred) or Transaction report</span></span>Ad Spend</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">TACOS</th>':''}
       </tr></thead>
       <tbody>
         ${sorted26.map(r=>{
           const sn=r.data.snapshot||{}, yy=r.data.yoy||{};
           const tx=txn26.find(t=>t.period===r.period);
+          const econ=econ26.find(e=>e.period===r.period);
           const sg=yy.sales_25?((sn.sales-yy.sales_25)/yy.sales_25*100):null;
           const ug=yy.units_25?((sn.units-yy.units_25)/yy.units_25*100):null;
-          const econ=econ26.find(e=>e.period===r.period);
           const advVal=econ?(econ.data.adv||0):tx?(tx.data.adv||0):0;
-          const tc=(econ||tx)?Math.abs(advVal)/((sn.sales||1))*100:null;
+          const hasAdv=!!(econ||tx);
+          const tc=hasAdv&&sn.sales?Math.abs(advVal)/(sn.sales)*100:null;
           const tcColor=tc>20?'var(--red)':tc>12?'var(--amber)':'var(--green)';
           return `<tr>
             <td><strong>${r.period}</strong></td>
@@ -3062,9 +3063,8 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
             <td style="text-align:right">${fn(sn.units||0)}</td>
             <td style="text-align:right">${sg!==null?yoyCell(sg):'—'}</td>
             <td style="text-align:right">${ug!==null?yoyCell(ug):'—'}</td>
-            ${tx?`<td style="text-align:right">${fs$(tx.data.fba_sales||0)}</td>
-              <td style="text-align:right;color:var(--red)">${fs$(tx.data.adv||0)}</td>
-              <td style="text-align:right;font-weight:600;color:${tcColor}">${tc!==null?tc.toFixed(1)+'%':'—'}</td>`:''}
+            ${hasAdv?`<td style="text-align:right;color:var(--red)">${fs$(Math.abs(advVal))}</td>
+              <td style="text-align:right;font-weight:600;color:${tcColor}">${tc!==null?tc.toFixed(1)+'%':'—'}</td>`:'<td>—</td><td>—</td>'}
           </tr>`;
         }).join('')}
         <tr class="row-total">
@@ -3073,7 +3073,7 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
           <td style="text-align:right">${fn(totUnits)}</td>
           <td style="text-align:right">${salesGrowth!==null?yoyCell(salesGrowth):'—'}</td>
           <td style="text-align:right">${unitsGrowth!==null?yoyCell(unitsGrowth):'—'}</td>
-          ${txn26.length?`<td style="text-align:right">${fs$(totFba)}</td><td style="text-align:right;color:var(--red)">${fs$(totAdv)}</td><td style="text-align:right;font-weight:600;color:${tacosColor}">${avgTacos.toFixed(1)}%</td>`:''}
+          ${(txn26.length||econ26.length)?`<td style="text-align:right;color:var(--red)">${fs$(Math.abs(totAdv))}</td><td style="text-align:right;font-weight:600;color:${tacosColor}">${avgTacos.toFixed(1)}%</td>`:''}
         </tr>
       </tbody>
     </table></div>
