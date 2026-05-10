@@ -1239,8 +1239,36 @@ function autoSaveSummary(ctx) {
 }
 
 function openSummaryModal(ctx) {
-  // Always auto-save — parser is accurate for Amazon Summary PDFs
-  autoSaveSummary(ctx);
+  SM_CTX = ctx;
+  const d = ctx.data || {};
+  const set = (id, val) => { const el=document.getElementById(id); if(el) el.value = val||''; };
+  set('sm_income',      d.income||'');
+  set('sm_expenses',    d.expenses||'');
+  set('sm_fba_sales',   d.fba_sales||'');
+  set('sm_refunds',     d.refunds||'');
+  set('sm_inv_credit',  d.inv_credit||'');
+  set('sm_vine',        d.vine||'');
+  set('sm_shipping',    d.shipping||'');
+  set('sm_liquidation', d.liquidation||'');
+  set('sm_selling_fees',d.selling_fees||'');
+  set('sm_tx_fees',     d.tx_fees||'');
+  set('sm_inbound',     d.inbound||'');
+  set('sm_adv',         d.adv||'');
+  set('sm_adjustments', d.adjustments||'');
+  set('sm_service_fees',d.service_fees||'');
+  set('sm_refund_admin',d.refund_admin||'');
+  set('sm_liq_fees',    d.liq_fees||'');
+  set('sm_bank',        d.bank||'');
+  set('sm_charges',     d.charges||'');
+  // Highlight adv field in amber if it parsed as 0 (likely missed)
+  const advEl = document.getElementById('sm_adv');
+  if (advEl) advEl.style.background = (!d.adv) ? 'var(--amber-lt)' : '';
+  const status = document.getElementById('smParseStatus');
+  if (status) status.innerHTML = (!d.adv)
+    ? '<span style="color:var(--amber);font-weight:600">⚠ Ad spend not detected — enter manually from PDF</span>'
+    : `<span style="color:var(--green)">✓ ${d._parse_score||0} fields parsed</span>`;
+  document.getElementById('modalSummary').style.display = 'flex';
+  updateTotalsCheck();
 }
 
 function updateTotalsCheck() {
