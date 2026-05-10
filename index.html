@@ -3276,25 +3276,23 @@ function renderAdvertising(cc, c, allRecs) {
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Ad Spend</th>
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">TACOS</th>
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Total Income</th>
-        <th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ad spend ÷ total income × 100</span></span></th>
-        <th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Amazon Vine and promotional rebate charges</span></span></th>
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Total Expenses</th>
       </tr></thead>
       <tbody>
         ${txn26.map(r=>{
           const d=r.data;
-          const tc=d.fba_sales?(Math.abs(d.adv||0)/d.fba_sales*100):0;
-          const ai=d.income?(Math.abs(d.adv||0)/d.income*100):0;
+          // Use advSource priority per period: summary_pdf → economics_csv → transaction_csv
+          const advRec = summ26adv.find(s=>s.period===r.period) || econ26adv.find(e=>e.period===r.period) || r;
+          const advVal = Math.abs(toUSD(advRec.data.adv||0, advRec.market));
+          const tc=d.fba_sales?(advVal/toUSD(d.fba_sales,r.market)*100):0;
           const tcC=tacosColor(tc);
           return `<tr>
             <td><strong>${r.period}</strong></td>
-            <td style="text-align:right;font-weight:600">${f$(d.fba_sales||0)}</td>
-            <td style="text-align:right;color:var(--red);font-weight:600">${f$(d.adv||0)}</td>
+            <td style="text-align:right;font-weight:600">${f$(toUSD(d.fba_sales||0,r.market))}</td>
+            <td style="text-align:right;color:var(--red);font-weight:600">${f$(-advVal)}</td>
             <td style="text-align:right;font-weight:700;color:${tcC}">${tc.toFixed(2)}%</td>
-            <td style="text-align:right">${f$(d.income||0)}</td>
-            <td style="text-align:right;color:var(--muted)">${ai.toFixed(1)}%</td>
-            <td style="text-align:right;color:var(--muted)">${d.vine?f$(d.vine):'—'}</td>
-            <td style="text-align:right;color:var(--muted)">${f$(d.expenses||0)}</td>
+            <td style="text-align:right">${f$(toUSD(d.income||0,r.market))}</td>
+            <td style="text-align:right;color:var(--muted)">${f$(toUSD(d.expenses||0,r.market))}</td>
           </tr>`;
         }).join('')}
         <tr class="row-total">
@@ -3303,8 +3301,6 @@ function renderAdvertising(cc, c, allRecs) {
           <td style="text-align:right;color:var(--red)">${f$(-totAdv)}</td>
           <td style="text-align:right;font-weight:700;color:${tacosColor(avgTacos)}">${avgTacos.toFixed(2)}%</td>
           <td style="text-align:right">${f$(totInc)}</td>
-          <td style="text-align:right">${avgAcos.toFixed(1)}%</td>
-          <td style="text-align:right">${f$(txn26.reduce((s,r)=>s+(r.data.vine||0),0))}</td>
           <td style="text-align:right">${f$(txn26.reduce((s,r)=>s+toUSD(r.data.expenses||0,r.market),0))}</td>
         </tr>
       </tbody>
