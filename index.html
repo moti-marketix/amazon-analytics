@@ -452,7 +452,7 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
           <div style="font-size:13px;font-weight:600;color:var(--accent)">Drop CSV files here</div>
           <div style="font-size:11px;color:var(--muted);margin-top:4px">or click to browse</div>
         </div>
-        <input type="file" id="bulkFileInput" accept=".csv" multiple style="display:none" onchange="bulkHandleFiles(this.files)">
+        <input type="file" id="bulkFileInput" accept=".csv,.pdf" multiple style="display:none" onchange="bulkHandleFiles(this.files)">
         <div id="bulkStatus" style="display:none;font-size:12px;padding:8px 12px;border-radius:6px;margin-bottom:12px"></div>
         <div id="bulkPreview" style="display:none">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
