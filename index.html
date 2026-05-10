@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Amazon Analytics Platform</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -868,12 +869,10 @@ function processUpload() {
   // Summary PDFs get the manual entry modal with auto-fill
   if (type === 'summary_pdf') {
     const file = A.pendingFiles[0];
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const attempted = parseSummaryPDF(ev.target.result);
+    extractPDFText(file).then(text => {
+      const attempted = parseSummaryPDF(text);
       openSummaryModal({ clientId, market, period, filename: file.name, data: attempted });
-    };
-    reader.readAsText(file);
+    });
     return;
   }
 
@@ -902,6 +901,20 @@ function processUpload() {
     };
     reader.readAsText(file);
   });
+}
+
+// Extract clean text from PDF using PDF.js (handles column layout correctly)
+async function extractPDFText(file) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(item => item.str).join(' ') + '\n';
+  }
+  return text;
 }
 
 function parseFile(type, text, filename) {
@@ -2204,41 +2217,43 @@ function bulkImport(){
   toImport.forEach(q=>{
     const reader=new FileReader();
     reader.onload=ev=>{
-      let parsed;
+      let parsePromise;
       if(q.type==='summary_pdf'){
-        parsed=parseSummaryPDF(ev.target.result);
+        parsePromise=extractPDFText(q.file).then(text=>parseSummaryPDF(text));
       } else {
-        parsed=parseFile(q.type,ev.target.result,q.file.name);
+        parsePromise=Promise.resolve(parseFile(q.type,ev.target.result,q.file.name));
       }
-      // For economics_csv, split into one record per market
-      const recordsToSave = [];
-      if(q.type==='economics_csv'&&parsed.markets){
-        Object.entries(parsed.markets).forEach(([mkt,mktData])=>{
+      parsePromise.then(parsed=>{
+        // For economics_csv, split into one record per market
+        const recordsToSave = [];
+        if(q.type==='economics_csv'&&parsed.markets){
+          Object.entries(parsed.markets).forEach(([mkt,mktData])=>{
+            recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
+              clientId:q.clientId,market:mkt,period:q.period,type:'economics_csv',
+              filename:q.file.name,data:mktData,uploaded:new Date().toISOString(),parsed:true});
+          });
+        } else {
           recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
-            clientId:q.clientId,market:mkt,period:q.period,type:'economics_csv',
-            filename:q.file.name,data:mktData,uploaded:new Date().toISOString(),parsed:true});
+            clientId:q.clientId,market:q.market,period:q.period,type:q.type,
+            filename:q.file.name,data:parsed,uploaded:new Date().toISOString(),parsed:true});
+        }
+        recordsToSave.forEach(record=>{
+          const idx=S.records.findIndex(x=>x.clientId===record.clientId&&x.market===record.market&&x.period===record.period&&x.type===record.type);
+          if(idx>=0){S.records[idx]=record;replaced++;}else{S.records.push(record);added++;}
+          if(!S.clients.find(c=>c.id===record.clientId)){const reg=CLIENT_REGISTRY.find(c=>c.id===record.clientId);if(reg)S.clients.push({...reg});}
+          cloudSaveRecord(record);
         });
-      } else {
-        recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
-          clientId:q.clientId,market:q.market,period:q.period,type:q.type,
-          filename:q.file.name,data:parsed,uploaded:new Date().toISOString(),parsed:true});
-      }
-      recordsToSave.forEach(record=>{
-        const idx=S.records.findIndex(x=>x.clientId===record.clientId&&x.market===record.market&&x.period===record.period&&x.type===record.type);
-        if(idx>=0){S.records[idx]=record;replaced++;}else{S.records.push(record);added++;}
-        if(!S.clients.find(c=>c.id===record.clientId)){const reg=CLIENT_REGISTRY.find(c=>c.id===record.clientId);if(reg)S.clients.push({...reg});}
-        cloudSaveRecord(record);
+        done++;
+        if(done===toImport.length){
+          saveState();renderSidebar();renderHome();
+          if(btn){btn.disabled=false;btn.textContent='Import All';}
+          const st=document.getElementById('bulkStatus');
+          if(st){st.style.cssText='display:block;font-size:12px;padding:8px 12px;border-radius:6px;margin-bottom:12px;background:#d1fae5;color:#065f46';st.textContent=`✓ Done — ${added} added, ${replaced} updated.`;}
+          bulkQueue=bulkQueue.filter(q=>!q.selected);
+          const bp=document.getElementById('bulkPreview');
+          if(bulkQueue.length)bulkRenderTable();else if(bp)bp.style.display='none';
+        }
       });
-      done++;
-      if(done===toImport.length){
-        saveState();renderSidebar();renderHome();
-        if(btn){btn.disabled=false;btn.textContent='Import All';}
-        const st=document.getElementById('bulkStatus');
-        if(st){st.style.cssText='display:block;font-size:12px;padding:8px 12px;border-radius:6px;margin-bottom:12px;background:#d1fae5;color:#065f46';st.textContent=`✓ Done — ${added} added, ${replaced} updated.`;}
-        bulkQueue=bulkQueue.filter(q=>!q.selected);
-        const bp=document.getElementById('bulkPreview');
-        if(bulkQueue.length)bulkRenderTable();else if(bp)bp.style.display='none';
-      }
     };
     reader.readAsText(q.file);
   });
