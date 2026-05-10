@@ -3067,12 +3067,24 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
   const totIncome  = txn26.reduce((s,r)=>s+toUSD(r.data.income||0,r.market),0);
   const totExpenses= txn26.reduce((s,r)=>s+toUSD(r.data.expenses||0,r.market),0);
   const summ26 = summR.filter(r=>r.type==='summary_pdf'&&r.data);
-  // Ad spend priority: summary_pdf → economics_csv → transaction_csv
-  const totAdv = summ26.length
-    ? summ26.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0)
-    : econ26.length
-      ? econ26.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0)
-      : txn26.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+  // Ad spend priority PER MARKET: summary_pdf → economics_csv → transaction_csv
+  // When all markets selected, mix sources per market so EU markets aren't ignored
+  const summMarkets = new Set(summ26.map(r=>r.market));
+  const econMarkets = new Set(econ26.map(r=>r.market));
+  const totAdv = (() => {
+    // Get all markets present in any ad spend source
+    const allMkts = new Set([...summMarkets,...econMarkets,...txn26.map(r=>r.market)]);
+    let total = 0;
+    allMkts.forEach(mkt => {
+      const summM = summ26.filter(r=>r.market===mkt);
+      const econM = econ26.filter(r=>r.market===mkt);
+      const txnM  = txn26.filter(r=>r.market===mkt);
+      if (summM.length) total += summM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+      else if (econM.length) total += econM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+      else total += txnM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+    });
+    return total;
+  })();
   const totFba = bizR.reduce((s,r)=>s+toUSD(r.data.snapshot?.sales||0,r.market),0);
   const avgTacos   = totFba ? (Math.abs(totAdv)/totFba*100) : 0;
   const salesGrowth= totSales25 ? ((totSales-totSales25)/totSales25*100) : null;
@@ -3189,16 +3201,19 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
           const sn=r.data.snapshot||{}, yy=r.data.yoy||{};
           const sg=yy.sales_25?((sn.sales-yy.sales_25)/yy.sales_25*100):null;
           const ug=yy.units_25?((sn.units-yy.units_25)/yy.units_25*100):null;
-          // Sum ALL markets per period; priority: summary_pdf → economics_csv → transaction_csv
+          // Per-market priority per period: summary_pdf → economics_csv → transaction_csv
           const summP=summ26.filter(s=>s.period===r.period);
           const econP=econ26.filter(e=>e.period===r.period);
           const txP=txn26.filter(t=>t.period===r.period);
-          const hasSumm=summP.length>0,hasEcon=econP.length>0,hasTx=txP.length>0;
-          const advVal=hasSumm
-            ? summP.reduce((s,e)=>s+toUSD(Math.abs(e.data.adv||0),e.market),0)
-            : hasEcon ? econP.reduce((s,e)=>s+toUSD(Math.abs(e.data.adv||0),e.market),0)
-            : hasTx   ? txP.reduce((s,t)=>s+toUSD(Math.abs(t.data.adv||0),t.market),0) : 0;
-          const hasAdv=hasSumm||hasEcon||hasTx;
+          const allMktsP=new Set([...summP.map(x=>x.market),...econP.map(x=>x.market),...txP.map(x=>x.market)]);
+          let advVal=0;
+          allMktsP.forEach(mkt=>{
+            const sM=summP.filter(x=>x.market===mkt),eM=econP.filter(x=>x.market===mkt),tM=txP.filter(x=>x.market===mkt);
+            if(sM.length) advVal+=sM.reduce((s,x)=>s+toUSD(Math.abs(x.data.adv||0),x.market),0);
+            else if(eM.length) advVal+=eM.reduce((s,x)=>s+toUSD(Math.abs(x.data.adv||0),x.market),0);
+            else advVal+=tM.reduce((s,x)=>s+toUSD(Math.abs(x.data.adv||0),x.market),0);
+          });
+          const hasAdv=allMktsP.size>0;
           const tc=hasAdv&&sn.sales?advVal/sn.sales*100:null;
           const tcColor=tc>20?'var(--red)':tc>12?'var(--amber)':'var(--green)';
           return `<tr>
@@ -3625,8 +3640,20 @@ async function runSelfDebug(questionOnly=false) {
     });
     const data = await res.json();
     const text = data.content?.[0]?.text||'';
+    if (!text) throw new Error('Empty response from API');
+    
     let parsed;
-    try { parsed = JSON.parse(text.replace(/```json|```/g,'')); } catch(e) { throw new Error('Parse error: '+text.slice(0,200)); }
+    try {
+      // Try to extract JSON from anywhere in the response
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      parsed = JSON.parse(jsonMatch ? jsonMatch[0] : text);
+    } catch(e) {
+      // JSON failed — show raw text response as plain output
+      out.innerHTML = `<div style="background:var(--stripe);border:1px solid var(--border);border-radius:8px;padding:16px;font-size:13px;line-height:1.7;color:var(--ink);white-space:pre-wrap">${text}</div>
+        <div style="text-align:right;margin-top:10px"><button class="btn" onclick="runSelfDebug(false)" style="font-size:11px">↺ Re-run Audit</button></div>`;
+      if (btn) { btn.disabled=false; btn.textContent='🔍 Run Full Audit'; }
+      return;
+    }
 
     const sevColor = s => s==='high'?'var(--red-lt)':s==='medium'?'var(--amber-lt)':'var(--green-lt)';
     const sevBorder = s => s==='high'?'#fca5a5':s==='medium'?'#fcd34d':'#6ee7b7';
