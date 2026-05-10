@@ -311,6 +311,7 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
     <button class="btn btn-sm btn-full" style="color:var(--faint);font-size:10px;margin-top:4px" onclick="doSignOut()">Sign Out</button>
     <button id="btnReset" class="btn btn-sm btn-full" style="color:var(--faint);font-size:10px;display:none" onclick="resetToDemo()">Reset data</button>
     <button id="btnDeleteAll" class="btn btn-sm btn-full" style="color:#f87171;font-size:10px;display:none;margin-top:4px" onclick="confirmDeleteAll()">&#x1F5D1; Delete All Records</button>
+    <button id="btnDebug" class="btn btn-sm btn-full" style="color:var(--accent);font-size:10px;display:none;margin-top:4px" onclick="openDebugPanel()">🔍 Debug Platform</button>
     <div class="sb-bottom-note">Export saves all data.<br>Import restores on any device.</div>
   </div>
 </aside>
@@ -3506,9 +3507,177 @@ function renderInsights(cc, c, allRecs) {
 }
 
 async function generateInsights() {
-  // AI Insights available in online version only
   const out = document.getElementById('insightsOutput');
-  if (out) out.innerHTML = '<div style="padding:16px;color:var(--amber-dk)">AI Insights will be available in the online version of this platform.</div>';
+  const btn = document.getElementById('generateInsightsBtn');
+  if (!out) return;
+  if (btn) { btn.disabled=true; btn.textContent='Analyzing…'; }
+  out.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">🤖 Claude is analyzing your data…<br><span style="font-size:11px">This takes 10-15 seconds</span></div>';
+
+  try {
+    const res = await fetch('https://edhweiwwgvikipghhnvm.supabase.co/functions/v1/claude-proxy', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ'},
+      body: JSON.stringify({
+        model:'claude-opus-4-5', max_tokens:2000,
+        messages:[{role:'user',content:`You are an Amazon seller analytics expert. Analyze this data and provide a structured business review.\n\n${window._insightData}\n\nProvide analysis in this exact JSON format:\n{"rating":"X/10","headline":"one sentence summary","highlights":["point1","point2","point3"],"concerns":["concern1","concern2"],"products":"product health summary","advertising":"advertising efficiency summary","recommendations":["rec1","rec2","rec3","rec4"],"outlook":"forward looking statement"}\n\nReturn ONLY the JSON, no markdown.`}]
+      })
+    });
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+    let parsed;
+    try { parsed = JSON.parse(text.replace(/```json|```/g,'')); } catch(e) { throw new Error('Parse failed: '+text.slice(0,100)); }
+
+    const insightBox = (title,content,color='var(--accent-lt)',border='var(--accent-b)',textColor='var(--accent)') =>
+      `<div style="background:${color};border:1px solid ${border};border-radius:10px;padding:14px 16px;margin-bottom:10px">
+        <div style="font-size:11px;font-weight:700;color:${textColor};margin-bottom:6px;letter-spacing:.04em;text-transform:uppercase">${title}</div>
+        <div style="font-size:13px;color:var(--ink);line-height:1.6">${content}</div>
+      </div>`;
+
+    out.innerHTML = `
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;margin-bottom:14px">
+        <div style="font-size:32px;font-weight:800;color:var(--accent)">${parsed.rating}</div>
+        <div style="font-size:14px;font-weight:600;color:var(--ink)">${parsed.headline}</div>
+      </div>
+      ${insightBox('✅ Highlights', parsed.highlights.map(h=>`• ${h}`).join('<br>'), 'var(--green-lt)','#6ee7b7','var(--green-dk)')}
+      ${insightBox('⚠️ Concerns', parsed.concerns.map(c=>`• ${c}`).join('<br>'), 'var(--amber-lt)','#fcd34d','var(--amber-dk)')}
+      ${insightBox('📦 Product Health', parsed.products)}
+      ${insightBox('📣 Advertising', parsed.advertising)}
+      ${insightBox('💡 Recommendations', parsed.recommendations.map((r,i)=>`<strong>${i+1}.</strong> ${r}`).join('<br>'), 'var(--violet-lt)','#c4b5fd','#5b21b6')}
+      ${insightBox('🔭 Outlook', parsed.outlook, 'var(--stripe)','var(--border)','var(--muted)')}
+      <div style="text-align:right;margin-top:8px">
+        <button class="btn" onclick="generateInsights()" style="font-size:11px">↺ Regenerate</button>
+      </div>`;
+  } catch(e) {
+    out.innerHTML = `<div style="padding:16px;color:var(--red)">Error: ${e.message}</div>`;
+  }
+  if (btn) { btn.disabled=false; btn.textContent='Generate Insights'; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SELF-DEBUG SYSTEM
+// ═══════════════════════════════════════════════════════════════════════════════
+function openDebugPanel() {
+  document.getElementById('modalDebug').style.display='flex';
+  document.getElementById('debugOutput').innerHTML='';
+}
+
+async function runSelfDebug(questionOnly=false) {
+  const btn = document.getElementById('debugBtn');
+  const out = document.getElementById('debugOutput');
+  const question = document.getElementById('debugQuestion')?.value?.trim();
+  if (!out) return;
+  if (btn) { btn.disabled=true; btn.textContent='Analyzing…'; }
+  out.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted)">🤖 Claude is ${question&&questionOnly?'answering your question':'auditing the platform'}…<br><span style="font-size:11px">This takes 10-15 seconds</span></div>`;
+
+  // Collect diagnostic data from all clients
+  const diagnostics = {
+    clients: S.clients.map(c => {
+      const recs = S.records.filter(r=>r.clientId===c.id);
+      const periods = [...new Set(recs.map(r=>r.period))].sort(periodSort);
+      const byType = {};
+      ['business_csv','transaction_csv','economics_csv','product_csv','summary_pdf'].forEach(t => {
+        byType[t] = recs.filter(r=>r.type===t).map(r=>({
+          period: r.period,
+          market: r.market,
+          adv: r.data?.adv,
+          income: r.data?.income,
+          fba_sales: r.data?.fba_sales,
+          sales: r.data?.snapshot?.sales,
+          bank: r.data?.bank
+        }));
+      });
+      // Check for common issues
+      const issues = [];
+      // Duplicate period+market+type
+      const keys = recs.map(r=>`${r.period}|${r.market}|${r.type}`);
+      const dupes = keys.filter((k,i)=>keys.indexOf(k)!==i);
+      if (dupes.length) issues.push(`Duplicate records: ${[...new Set(dupes)].join(', ')}`);
+      // Missing markets for a period
+      const bizPeriods = [...new Set(byType.business_csv.map(r=>r.period))];
+      const txnPeriods = [...new Set(byType.transaction_csv.map(r=>r.period))];
+      const missingTxn = bizPeriods.filter(p=>!txnPeriods.includes(p));
+      if (missingTxn.length) issues.push(`Periods with sales but no transaction CSV: ${missingTxn.join(', ')}`);
+      // Summary PDF with adv=0
+      const badPdf = byType.summary_pdf.filter(r=>!r.adv||r.adv===0);
+      if (badPdf.length) issues.push(`Summary PDFs with adv=0 (parser missed): ${badPdf.map(r=>r.period+' '+r.market).join(', ')}`);
+      // Economics csv with suspicious adv values
+      const badEcon = byType.economics_csv.filter(r=>r.adv<0);
+      if (badEcon.length) issues.push(`Economics CSV with negative adv (should be positive): ${badEcon.map(r=>r.period+' '+r.market).join(', ')}`);
+
+      return { client: c.display, periods, recordCount: recs.length, byType, issues };
+    }),
+    globalState: {
+      totalRecords: S.records.length,
+      totalClients: S.clients.length,
+      recordTypes: Object.fromEntries(['business_csv','transaction_csv','economics_csv','product_csv','summary_pdf'].map(t=>[t, S.records.filter(r=>r.type===t).length]))
+    }
+  };
+
+  try {
+    const prompt = question
+      ? `You are debugging the Marketix Amazon Analytics Platform. The user has a specific question:\n\n"${question}"\n\nHere is the full diagnostic data to help answer it:\n${JSON.stringify(diagnostics, null, 2)}\n\nKNOWN RULES:\n- Ad spend (adv) in transaction_csv should be NEGATIVE\n- Ad spend (adv) in economics_csv should be POSITIVE\n- Ad spend (adv) in summary_pdf should be NEGATIVE and non-zero\n- Bank transfers should be POSITIVE\n- Income POSITIVE, Expenses NEGATIVE\n\nAnswer the question directly and clearly. Return a JSON response:\n{"summary":"direct answer to the question","clientIssues":[{"client":"name","severity":"high|medium|low","issue":"description","fix":"what to do"}],"dataGaps":[],"suspiciousValues":[],"overallHealth":"healthy|needs_attention|critical"}\n\nReturn ONLY JSON.`
+      : `You are debugging the Marketix Amazon Analytics Platform. Analyze this diagnostic data and identify all data issues, missing records, and suspicious values across all clients.\n\nDIAGNOSTIC DATA:\n${JSON.stringify(diagnostics, null, 2)}\n\nKNOWN RULES:\n- Ad spend (adv) in transaction_csv should be NEGATIVE\n- Ad spend (adv) in economics_csv should be POSITIVE\n- Ad spend (adv) in summary_pdf should be NEGATIVE and non-zero (if zero, parser failed)\n- Each client should have matching periods across business_csv and transaction_csv\n- Bank transfers should be POSITIVE\n- Income POSITIVE, Expenses NEGATIVE\n\nReturn a JSON response:\n{"summary":"one line overall health summary","clientIssues":[{"client":"name","severity":"high|medium|low","issue":"description","fix":"what to do"}],"dataGaps":["description"],"suspiciousValues":["description"],"overallHealth":"healthy|needs_attention|critical"}\n\nReturn ONLY JSON.`;
+
+    const res = await fetch('https://edhweiwwgvikipghhnvm.supabase.co/functions/v1/claude-proxy', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ'},
+      body: JSON.stringify({model:'claude-opus-4-5',max_tokens:3000,messages:[{role:'user',content:prompt}]})
+    });
+    const data = await res.json();
+    const text = data.content?.[0]?.text||'';
+    let parsed;
+    try { parsed = JSON.parse(text.replace(/```json|```/g,'')); } catch(e) { throw new Error('Parse error: '+text.slice(0,200)); }
+
+    const sevColor = s => s==='high'?'var(--red-lt)':s==='medium'?'var(--amber-lt)':'var(--green-lt)';
+    const sevBorder = s => s==='high'?'#fca5a5':s==='medium'?'#fcd34d':'#6ee7b7';
+    const sevText = s => s==='high'?'var(--red-dk)':s==='medium'?'var(--amber-dk)':'var(--green-dk)';
+    const healthColor = h => h==='healthy'?'var(--green)':h==='needs_attention'?'var(--amber)':'var(--red)';
+
+    out.innerHTML = `
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;padding:12px 16px;background:var(--stripe);border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:24px">${parsed.overallHealth==='healthy'?'✅':parsed.overallHealth==='needs_attention'?'⚠️':'🚨'}</div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Platform Health</div>
+          <div style="font-size:14px;font-weight:700;color:${healthColor(parsed.overallHealth)}">${parsed.overallHealth.replace('_',' ').toUpperCase()}</div>
+          <div style="font-size:12px;color:var(--ink);margin-top:2px">${parsed.summary}</div>
+        </div>
+      </div>
+
+      ${parsed.clientIssues?.length ? `
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Client Issues (${parsed.clientIssues.length})</div>
+      ${parsed.clientIssues.map(i=>`
+        <div style="background:${sevColor(i.severity)};border:1px solid ${sevBorder(i.severity)};border-radius:8px;padding:12px 14px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span style="font-weight:700;font-size:13px">${i.client}</span>
+            <span style="font-size:10px;font-weight:700;color:${sevText(i.severity)};text-transform:uppercase;background:white;padding:2px 6px;border-radius:4px">${i.severity}</span>
+          </div>
+          <div style="font-size:12px;color:var(--ink);margin-bottom:4px">🔴 ${i.issue}</div>
+          <div style="font-size:12px;color:var(--green-dk)">✅ Fix: ${i.fix}</div>
+        </div>`).join('')}` : ''}
+
+      ${parsed.dataGaps?.length ? `
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:12px 0 8px">Data Gaps</div>
+      <div style="background:var(--amber-lt);border:1px solid #fcd34d;border-radius:8px;padding:12px 14px">
+        ${parsed.dataGaps.map(g=>`<div style="font-size:12px;margin-bottom:4px">• ${g}</div>`).join('')}
+      </div>` : ''}
+
+      ${parsed.suspiciousValues?.length ? `
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin:12px 0 8px">Suspicious Values</div>
+      <div style="background:var(--red-lt);border:1px solid #fca5a5;border-radius:8px;padding:12px 14px">
+        ${parsed.suspiciousValues.map(v=>`<div style="font-size:12px;margin-bottom:4px">• ${v}</div>`).join('')}
+      </div>` : ''}
+
+      <div style="margin-top:12px;padding:10px 14px;background:var(--stripe);border-radius:8px;border:1px solid var(--border)">
+        <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:6px">Record counts</div>
+        ${Object.entries(diagnostics.globalState.recordTypes).map(([t,n])=>`<div style="font-size:11px;color:var(--ink)">${t.replace(/_/g,' ')}: <strong>${n}</strong></div>`).join('')}
+      </div>
+      <div style="text-align:right;margin-top:10px">
+        <button class="btn" onclick="runSelfDebug(false)" style="font-size:11px">↺ Re-run Audit</button>
+      </div>`;
+  } catch(e) {
+    out.innerHTML = `<div style="padding:16px;color:var(--red)">Debug error: ${e.message}</div>`;
+  }
+  if (btn) { btn.disabled=false; btn.textContent='🔍 Run Debug'; }
 }
 
 
@@ -4124,6 +4293,8 @@ async function _onSignIn(user){
   if(rb)rb.style.display=_role==='admin'?'block':'none';
   if(db)db.style.display=_role==='admin'?'block':'none';
   if(ab)ab.style.display=_role==='admin'?'block':'none';
+  const dgb=document.getElementById('btnDebug');
+  if(dgb)dgb.style.display=_role==='admin'?'block':'none';
   const ue=document.getElementById('sbUserEmail');
   if(ue)ue.textContent=user.email;
   document.getElementById('loginOverlay').style.display='none';
@@ -4188,6 +4359,27 @@ async function _onSignIn(user){
       <button class="btn" onclick="closeFxModal()" style="flex:1">Cancel</button>
       <button class="btn btn-primary" onclick="saveFxSettings()" style="flex:1">Save &amp; Apply</button>
     </div>
+  </div>
+</div>
+
+<!-- Debug Panel Modal -->
+<div id="modalDebug" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;align-items:center;justify-content:center" onclick="if(event.target===this)document.getElementById('modalDebug').style.display='none'">
+  <div style="background:var(--card);border-radius:16px;padding:24px;width:720px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 25px 60px rgba(0,0,0,.3)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <div style="font-size:16px;font-weight:700;color:var(--ink)">🔍 Platform Debug & Analysis</div>
+      <button class="btn btn-sm" onclick="document.getElementById('modalDebug').style.display='none'">✕ Close</button>
+    </div>
+
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Ask anything (optional)</div>
+      <textarea id="debugQuestion" placeholder="Leave blank for a full platform audit — or ask something specific:&#10;• Why is Rhino ad spend showing wrong in April?&#10;• Why are Jean Rachel financials showing $0?&#10;• Check if all EU markets have data for Q1&#10;• Compare Monkey Business Jan vs Apr revenue" style="width:100%;height:90px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:12px;color:var(--ink);background:var(--stripe);resize:vertical;font-family:inherit;box-sizing:border-box"></textarea>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button id="debugBtn" class="btn btn-primary" onclick="runSelfDebug()" style="flex:1">🔍 Run Full Audit</button>
+      <button class="btn" onclick="runSelfDebug(true)" style="flex:1">💬 Ask Question</button>
+    </div>
+    <div id="debugOutput"></div>
   </div>
 </div>
 
