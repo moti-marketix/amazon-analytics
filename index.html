@@ -1899,14 +1899,28 @@ function buildProdView(cc, c, prodR, sel) {
 
 function renderFinancials(cc, c, summR) {
   if (!summR.length) { cc.innerHTML=emptyPanel('No summary PDF data','Upload a Transaction Report CSV (from Payments → Transaction View → Download) or a Summary PDF for '+c.display+'. When you select "Amazon Summary PDF" as the report type, a form will open for you to verify and enter the figures.'); return; }
-  const sorted=[...summR].sort((a,b)=>periodSort(a.period,b.period));
 
-  // Build income/expense detail rows across all periods
-  const periods = sorted.map(r=>r.period);
+  // Aggregate all markets per period into single rows
+  const allPeriods = [...new Set(summR.map(r=>r.period))].sort(periodSort);
   const get = (r,k) => r.data?.[k] || 0;
 
+  // For each period, sum all markets (with FX conversion for monetary fields)
+  const MONEY_KEYS = ['income','expenses','fba_sales','refunds','inv_credit','vine','shipping','liquidation','selling_fees','tx_fees','inbound','adv','adjustments','service_fees','refund_admin','liq_fees','bank','charges'];
+  const aggByPeriod = allPeriods.map(p => {
+    const recs = summR.filter(r=>r.period===p);
+    const agg = {period:p, data:{}};
+    MONEY_KEYS.forEach(k => {
+      agg.data[k] = recs.reduce((s,r)=>s+toUSD(get(r,k),r.market),0);
+    });
+    return agg;
+  });
+
+  const sorted = aggByPeriod;
+  const periods = allPeriods;
+
+  // Build income/expense detail rows across all periods
   const finRow = (label, key, indent=false) => {
-    const vals = sorted.map(r => get(r,key));
+    const vals = sorted.map(r => r.data[key]||0);
     const anyVal = vals.some(v=>v!==0);
     if (!anyVal) return '';
     const tot = vals.reduce((s,v)=>s+v,0);
@@ -1916,8 +1930,8 @@ function renderFinancials(cc, c, summR) {
       <td class="${tot>0?'text-pos':tot<0?'text-neg':'text-muted'}" style="text-align:right;font-weight:700">${f$(tot)}</td>
     </tr>`;
   };
-  const totRow = (label, key, fn2) => {
-    const vals = fn2 ? sorted.map(r=>fn2(r.data||{})) : sorted.map(r=>get(r,key));
+  const totRow = (label, key) => {
+    const vals = sorted.map(r => r.data[key]||0);
     const tot = vals.reduce((s,v)=>s+v,0);
     return `<tr class="row-section" style="background:var(--accent)">
       <td style="color:#fff;font-weight:700">${label}</td>
@@ -1928,23 +1942,22 @@ function renderFinancials(cc, c, summR) {
 
   const tacosRow = () => {
     const vals = sorted.map(r => {
-      const adv = Math.abs(get(r,'adv')); const fba = get(r,'fba_sales');
+      const adv = Math.abs(r.data.adv||0); const fba = r.data.fba_sales||0;
       return fba ? (adv/fba*100) : 0;
     });
-    const totAdv = sorted.reduce((s,r)=>s+Math.abs(toUSD(get(r,'adv'),r.market)),0);
-    const totFba = sorted.reduce((s,r)=>s+toUSD(get(r,'fba_sales'),r.market),0);
+    const totAdv = sorted.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
+    const totFba = sorted.reduce((s,r)=>s+(r.data.fba_sales||0),0);
     const totTc = totFba ? totAdv/totFba*100 : 0;
     const tcell = v => { const col=v<15?'var(--green)':v<25?'var(--amber)':'var(--red)'; return `<td style="text-align:right;color:${col};font-weight:700">${v.toFixed(1)}%</td>`; };
-    return `<tr><td style="font-weight:600"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ad Spend ÷ FBA Sales. Under 12%=healthy</span></span></td>${vals.map(tcell).join('')}${tcell(totTc)}</tr>`;
+    return `<tr><td style="font-weight:600">TACOS</td>${vals.map(tcell).join('')}${tcell(totTc)}</tr>`;
   };
 
   cc.innerHTML=`
   <div class="kpi-grid">
-    <div class="kpi-card green"><div class="kpi-label">Total Income</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+get(r,'income'),0))}</div><div class="kpi-sub">${sorted.length} period(s)</div></div>
-    <div class="kpi-card red"><div class="kpi-label">Total Expenses</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+get(r,'expenses'),0))}</div><div class="kpi-sub">All fees</div></div>
-    <div class="kpi-card amber"><div class="kpi-label"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Gross product sales settled by Amazon</span></span></div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+get(r,'fba_sales'),0))}</div><div class="kpi-sub">Gross product sales</div></div>
-    <div class="kpi-card blue"><div class="kpi-label">Vine / Rebates</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+get(r,'vine'),0))}</div><div class="kpi-sub">Launch investment</div></div>
-    <div class="kpi-card violet"><div class="kpi-label"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Total ad spend charged by Amazon</span></span></div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+get(r,'adv'),0))}</div><div class="kpi-sub">Cost of advertising</div></div>
+    <div class="kpi-card green"><div class="kpi-label">Total Income</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+(r.data.income||0),0))}</div><div class="kpi-sub">${sorted.length} period(s)</div></div>
+    <div class="kpi-card red"><div class="kpi-label">Total Expenses</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+(r.data.expenses||0),0))}</div><div class="kpi-sub">All fees</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">FBA Product Sales</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+(r.data.fba_sales||0),0))}</div><div class="kpi-sub">Gross product sales</div></div>
+    <div class="kpi-card violet"><div class="kpi-label">Cost of Advertising</div><div class="kpi-value">${f$(sorted.reduce((s,r)=>s+(r.data.adv||0),0))}</div><div class="kpi-sub">Total ad spend</div></div>
   </div>
   <div class="row-2">
     <div class="panel"><div class="panel-header"><span class="panel-title">Income trend</span></div>
@@ -1987,8 +2000,8 @@ function renderFinancials(cc, c, summR) {
   setTimeout(()=>{
     dc('cFinInc');dc('cFinExp');
     mc('cFinInc',{type:'bar',data:{labels:periods,datasets:[
-      {label:'Income',data:sorted.map(r=>get(r,'income')),backgroundColor:'#05966988',borderColor:'#059669',borderWidth:1,borderRadius:4},
-      {label:'Expenses',data:sorted.map(r=>Math.abs(get(r,'expenses'))),backgroundColor:'#DC262640',borderColor:'#DC2626',borderWidth:1,borderRadius:4}
+      {label:'Income',  data:sorted.map(r=>r.data.income||0),  backgroundColor:'#05966988',borderColor:'#059669',borderWidth:1,borderRadius:4},
+      {label:'Expenses',data:sorted.map(r=>Math.abs(r.data.expenses||0)),backgroundColor:'#DC262640',borderColor:'#DC2626',borderWidth:1,borderRadius:4}
     ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:10},boxWidth:10}}},scales:{y:{ticks:{callback:v=>'$'+(v/1000).toFixed(0)+'k',font:{size:10}}},x:{ticks:{font:{size:10}}}}}});
     const latD=sorted[sorted.length-1].data||{};
     mc('cFinExp',{type:'doughnut',data:{labels:['Selling','Transaction','Inbound','Ads','Other'],datasets:[{
