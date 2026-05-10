@@ -3184,8 +3184,7 @@ function renderAdvertising(cc, c, allRecs) {
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Ad Spend</th>
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">TACOS</th>
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Total Income</th>
-        <th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ad spend ÷ total income × 100</span></span></th>
-        <th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Amazon Vine and promotional rebate charges</span></span></th>
+
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Total Expenses</th>
       </tr></thead>
       <tbody>
@@ -3200,8 +3199,7 @@ function renderAdvertising(cc, c, allRecs) {
             <td style="text-align:right;color:var(--red);font-weight:600">${f$(d.adv||0)}</td>
             <td style="text-align:right;font-weight:700;color:${tcC}">${tc.toFixed(2)}%</td>
             <td style="text-align:right">${f$(d.income||0)}</td>
-            <td style="text-align:right;color:var(--muted)">${ai.toFixed(1)}%</td>
-            <td style="text-align:right;color:var(--muted)">${d.vine?f$(d.vine):'—'}</td>
+
             <td style="text-align:right;color:var(--muted)">${f$(d.expenses||0)}</td>
           </tr>`;
         }).join('')}
@@ -3211,8 +3209,7 @@ function renderAdvertising(cc, c, allRecs) {
           <td style="text-align:right;color:var(--red)">${f$(-totAdv)}</td>
           <td style="text-align:right;font-weight:700;color:${tacosColor(avgTacos)}">${avgTacos.toFixed(2)}%</td>
           <td style="text-align:right">${f$(totInc)}</td>
-          <td style="text-align:right">${avgAcos.toFixed(1)}%</td>
-          <td style="text-align:right">${f$(txn26.reduce((s,r)=>s+(r.data.vine||0),0))}</td>
+
           <td style="text-align:right">${f$(txn26.reduce((s,r)=>s+toUSD(r.data.expenses||0,r.market),0))}</td>
         </tr>
       </tbody>
