@@ -2214,7 +2214,7 @@ function bulkParseName(filename){
   else if(/salesdashboard|sales.?dashboard/i.test(filename))type='business_csv';
   else if(/transaction/i.test(filename))type='transaction_csv';
   else if(/selling.?economics|economics.?fees|tortuga/i.test(filename))type='economics_csv';
-  else if(/^summary[\s\-_]/i.test(filename)||/[\s\-_]summary[\s\-_]/i.test(filename))type='summary_pdf';
+  else if(/^summary[\s\-_]/i.test(filename)||/[\s\-_]summary[\s\-_]/i.test(filename)||/^settlement[\s\-_]/i.test(filename)||/[\s\-_]settlement[\s\-_]/i.test(filename))type='summary_pdf';
   if(type==='economics_csv'){market='MULTI';}
   else{for(const mkt of BULK_MKT_SET){if(tokens.some(t=>t.toUpperCase()===mkt)){market=mkt;break;}}}
   const yr=tokens.find(t=>/^20\d{2}$/.test(t));if(yr)year=yr;
@@ -2243,7 +2243,7 @@ function bulkRenderTable(){
   tbody.innerHTML=bulkQueue.map((q,i)=>{
     const cl=CLIENT_REGISTRY.find(c=>c.id===q.clientId);
     const clLabel=cl?`<span style="color:${cl.color};font-weight:600">${cl.display}</span>`:`<span style="color:var(--red,#dc2626);font-size:11px">${q.clientDisplay||'?'} — not found</span>`;
-    const typeLabel={product_csv:'Business Report',business_csv:'Sales Dashboard',transaction_csv:'Transaction',economics_csv:'Selling Economics',summary_pdf:'Summary PDF'}[q.type]||(q.type||'?');
+    const typeLabel={product_csv:'Business Report',business_csv:'Sales Dashboard',transaction_csv:'Transaction',economics_csv:'Selling Economics',summary_pdf:'Settlement / Summary PDF'}[q.type]||(q.type||'?');
     const badge=q.status==='ready'?'<span class="chip chip-green">Ready</span>':`<span class="chip chip-amber" title="Missing: ${(q.missing||[]).join(', ')}">&#9888; ${(q.missing||[]).join(', ')}</span>`;
     const dis=q.status!=='ready'?'disabled':'';
     return `<tr style="opacity:${q.status==='ready'?1:.55}">`
