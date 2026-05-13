@@ -307,6 +307,7 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
       <input type="file" id="importInput" accept=".json" onchange="importData(event)" style="display:none">
       <span class="btn btn-sm btn-full" style="display:flex;cursor:pointer">⬆ Import data</span>
     </label>
+    <div id="saveIndicator" style="font-size:10px;text-align:center;padding:2px 0;min-height:14px;font-weight:600"></div>
     <div id="sbUserEmail" style="font-size:10px;color:var(--muted);text-align:center;padding:2px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
     <button class="btn btn-sm btn-full" style="color:var(--faint);font-size:10px;margin-top:4px" onclick="doSignOut()">Sign Out</button>
     <button id="btnReset" class="btn btn-sm btn-full" style="color:var(--faint);font-size:10px;display:none" onclick="resetToDemo()">Reset data</button>
@@ -632,16 +633,65 @@ let A = {
 function saveState() {
   try { localStorage.setItem('aap4', JSON.stringify(S)); } catch(e) {}
 }
+// ── CLOUD SAVE QUEUE ─────────────────────────────────────────────────────────
+// Batches records to avoid overwhelming Supabase free tier
+let _saveQueue = [];
+let _saveTimer = null;
+
 async function cloudSaveRecord(rec) {
   if (!_user || _role !== 'admin') return;
-  try {
-    const {error} = await _SB.from('records').upsert({
-      id: rec.id, client_id: rec.clientId, market: rec.market,
-      period: rec.period, type: rec.type, filename: rec.filename,
-      data: rec.data, uploaded: rec.uploaded, parsed: rec.parsed
-    }, { onConflict: 'client_id,market,period,type' });
-    if (error) console.error('Save error:', rec.market, rec.period, rec.type, error.message);
-  } catch(e) { console.error('Save exception:', e.message); }
+  // Add to queue, deduplicate by id
+  _saveQueue = _saveQueue.filter(r => r.id !== rec.id);
+  _saveQueue.push(rec);
+  // Debounce — flush after 800ms of inactivity
+  clearTimeout(_saveTimer);
+  _saveTimer = setTimeout(flushSaveQueue, 800);
+}
+
+async function flushSaveQueue() {
+  if (!_saveQueue.length || !_user) return;
+  const batch = [..._saveQueue];
+  _saveQueue = [];
+  // Show saving indicator
+  const ind = document.getElementById('saveIndicator');
+  if (ind) { ind.textContent = `⏳ Saving ${batch.length} records…`; ind.style.color='var(--amber)'; }
+  // Save in chunks of 10
+  const CHUNK = 10;
+  let saved = 0;
+  for (let i = 0; i < batch.length; i += CHUNK) {
+    const chunk = batch.slice(i, i + CHUNK);
+    try {
+      const rows = chunk.map(rec => ({
+        id: rec.id, client_id: rec.clientId, market: rec.market,
+        period: rec.period, type: rec.type, filename: rec.filename,
+        data: rec.data, uploaded: rec.uploaded, parsed: rec.parsed
+      }));
+      const {error} = await _SB.from('records').upsert(rows, {onConflict:'client_id,market,period,type'});
+      if (error) {
+        console.error('Batch save error:', error.message);
+        _saveQueue.push(...chunk);
+      } else {
+        saved += chunk.length;
+        if (ind) ind.textContent = `⏳ Saving… ${saved}/${batch.length}`;
+      }
+    } catch(e) {
+      console.error('Batch save exception:', e.message);
+      _saveQueue.push(...chunk);
+    }
+    if (i + CHUNK < batch.length) await new Promise(r => setTimeout(r, 300));
+  }
+  if (ind) {
+    const failed = batch.length - saved;
+    if (failed > 0) {
+      ind.textContent = `⚠️ ${saved} saved, ${failed} failed — retrying…`;
+      ind.style.color = 'var(--red)';
+      setTimeout(flushSaveQueue, 3000);
+    } else {
+      ind.textContent = `✓ All saved`;
+      ind.style.color = 'var(--green)';
+      setTimeout(() => { if(ind) ind.textContent=''; }, 3000);
+    }
+  }
 }
 async function cloudLoad() {
   if (!_user) return;
