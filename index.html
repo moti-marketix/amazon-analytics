@@ -3588,7 +3588,7 @@ async function generateInsights() {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ'},
       body: JSON.stringify({
-        model:'claude-opus-4-5', max_tokens:2000,
+        model:'claude-sonnet-4-20250514', max_tokens:2000,
         messages:[{role:'user',content:`You are an Amazon seller analytics expert. Analyze this data and provide a structured business review.\n\n${window._insightData}\n\nProvide analysis in this exact JSON format:\n{"rating":"X/10","headline":"one sentence summary","highlights":["point1","point2","point3"],"concerns":["concern1","concern2"],"products":"product health summary","advertising":"advertising efficiency summary","recommendations":["rec1","rec2","rec3","rec4"],"outlook":"forward looking statement"}\n\nReturn ONLY the JSON, no markdown.`}]
       })
     });
@@ -3881,7 +3881,7 @@ async function runSelfDebug(questionOnly=false) {
     const res = await fetch('https://edhweiwwgvikipghhnvm.supabase.co/functions/v1/claude-proxy', {
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ'},
-      body: JSON.stringify({model:'claude-opus-4-5',max_tokens:3000,messages:[{role:'user',content:prompt}]})
+      body: JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3000,messages:[{role:'user',content:prompt}]})
     });
     const data = await res.json();
     const text = data.content?.[0]?.text||'';
@@ -4538,7 +4538,10 @@ async function _onSignIn(user){
   <div style="background:var(--card);border-radius:16px;padding:24px;width:720px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 25px 60px rgba(0,0,0,.3)">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <div style="font-size:16px;font-weight:700;color:var(--ink)">🔍 Platform Debug & Analysis</div>
-      <button class="btn btn-sm" onclick="document.getElementById('modalDebug').style.display='none'">✕ Close</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="downloadDebugReport()">⬇ Download Report</button>
+        <button class="btn btn-sm" onclick="document.getElementById('modalDebug').style.display='none'">✕ Close</button>
+      </div>
     </div>
 
     <div style="margin-bottom:14px">
