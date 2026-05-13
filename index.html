@@ -3753,10 +3753,74 @@ function runLocalAudit() {
     <div style="margin-top:12px;display:flex;gap:8px">
       <button class="btn btn-primary" onclick="runSelfDebug(false)" style="flex:1">🤖 Deep AI Audit</button>
       <button class="btn" onclick="runSelfDebug(true)" style="flex:1">💬 Ask Question</button>
+      <button class="btn" onclick="downloadDebugReport()" style="flex:1">⬇ Download Report</button>
     </div>`;
 }
 
-async function runSelfDebug(questionOnly=false) {
+function downloadDebugReport() {
+  const PERIODS = ['Jan 2026','Feb 2026','Mar 2026','Apr 2026'];
+  const TYPES = ['business_csv','transaction_csv','product_csv','summary_pdf','economics_csv'];
+
+  const lines = [];
+  lines.push('MARKETIX PLATFORM DEBUG REPORT');
+  lines.push('Generated: ' + new Date().toLocaleString());
+  lines.push('Total records in DB: ' + S.records.length);
+  lines.push('='.repeat(70));
+
+  S.clients.forEach(c => {
+    const recs = S.records.filter(r=>r.clientId===c.id);
+    lines.push('');
+    lines.push('CLIENT: ' + c.display);
+    lines.push('-'.repeat(50));
+
+    const markets = [...new Set(recs.map(r=>r.market).filter(m=>m!=='MULTI'))].sort();
+
+    markets.forEach(mkt => {
+      PERIODS.forEach(period => {
+        const mktRecs = recs.filter(r=>r.market===mkt&&r.period===period);
+        TYPES.forEach(type => {
+          const rec = mktRecs.find(r=>r.type===type);
+          if (!rec) {
+            lines.push(`  ❌ MISSING  | ${mkt.padEnd(4)} | ${period} | ${type}`);
+          } else {
+            const d = rec.data || {};
+            let detail = '';
+            if (type==='summary_pdf')    detail = `adv=${d.adv??'null'}, income=${d.income??'null'}, fba_sales=${d.fba_sales??'null'}`;
+            if (type==='transaction_csv') detail = `income=${d.income??'null'}, adv=${d.adv??'null'}, fba_sales=${d.fba_sales??'null'}`;
+            if (type==='business_csv')   detail = `sales=${d.snapshot?.sales??'null'}, units=${d.snapshot?.units??'null'}`;
+            if (type==='product_csv')    detail = `parents=${d.parents?.length??'null'}`;
+            if (type==='economics_csv')  detail = `markets=${Object.keys(d.markets||{}).join(',')||'none'}`;
+
+            const warn = (type==='summary_pdf' && (!d.adv||d.adv===0)) ||
+                         (type==='transaction_csv' && (!d.income||d.income===0)) ||
+                         (type==='business_csv' && (!d.snapshot?.sales||d.snapshot?.sales===0));
+            const status = warn ? '⚠️  WARN   ' : '✅ OK      ';
+            lines.push(`  ${status} | ${mkt.padEnd(4)} | ${period} | ${type.padEnd(16)} | ${detail}`);
+          }
+        });
+      });
+    });
+  });
+
+  lines.push('');
+  lines.push('='.repeat(70));
+  lines.push('SUMMARY');
+  lines.push('Records by type:');
+  ['business_csv','transaction_csv','product_csv','summary_pdf','economics_csv'].forEach(t => {
+    lines.push(`  ${t}: ${S.records.filter(r=>r.type===t).length}`);
+  });
+
+  const blob = new Blob([lines.join('\n')], {type:'text/plain'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'marketix_debug_' + new Date().toISOString().slice(0,10) + '.txt';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
   const btn = document.getElementById('debugBtn');
   const out = document.getElementById('debugOutput');
   const question = document.getElementById('debugQuestion')?.value?.trim();
