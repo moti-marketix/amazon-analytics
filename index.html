@@ -3821,6 +3821,7 @@ function downloadDebugReport() {
   URL.revokeObjectURL(url);
 }
 
+async function runSelfDebug(questionOnly=false) {
   const btn = document.getElementById('debugBtn');
   const out = document.getElementById('debugOutput');
   const question = document.getElementById('debugQuestion')?.value?.trim();
