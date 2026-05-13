@@ -2011,12 +2011,17 @@ function renderFinancials(cc, c, summR) {
   };
   const tacosRow = () => {
     const vals = sorted.map(r => {
-      const adv=Math.abs(r.data.adv||0), fba=r.data.fba_sales||0;
-      return fba?(adv/fba*100):0;
+      const adv=Math.abs(r.data.adv||0);
+      // Use ordered sales from business_csv for TACOS — look up by period
+      const bizPeriod = txnR.length ? allRecs.filter(x=>x.type==='business_csv'&&x.data?.snapshot&&x.period===r.period) : [];
+      const ordSales = bizPeriod.length
+        ? bizPeriod.reduce((s,x)=>s+toUSD(x.data.snapshot.sales||0,x.market),0)
+        : r.data.fba_sales||0;
+      return ordSales?(adv/ordSales*100):0;
     });
-    const totAdv=sorted.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
-    const totFba=sorted.reduce((s,r)=>s+(r.data.fba_sales||0),0);
-    const totTc=totFba?totAdv/totFba*100:0;
+    const totAdv2=sorted.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
+    const totOrdSales=sorted.reduce((s,r)=>s+(r.data.fba_sales||0),0);
+    const totTc=totOrdSales?totAdv2/totOrdSales*100:0;
     const tcell=v=>{const col=v<15?'var(--green)':v<25?'var(--amber)':'var(--red)';return `<td style="text-align:right;color:${col};font-weight:700">${v.toFixed(1)}%</td>`;};
     return `<tr><td style="font-weight:600">TACOS</td>${vals.map(tcell).join('')}${tcell(totTc)}</tr>`;
   };
@@ -2030,7 +2035,7 @@ function renderFinancials(cc, c, summR) {
   <div class="kpi-grid">
     <div class="kpi-card green"><div class="kpi-label">Total Income</div><div class="kpi-value">${f$(totIncome)}</div><div class="kpi-sub">${sorted.length} period(s)</div></div>
     <div class="kpi-card red"><div class="kpi-label">Total Expenses</div><div class="kpi-value">${f$(totExpenses)}</div><div class="kpi-sub">All fees</div></div>
-    <div class="kpi-card amber"><div class="kpi-label">FBA Product Sales</div><div class="kpi-value">${f$(totFba)}</div><div class="kpi-sub">Gross product sales</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">Ordered Sales</div><div class="kpi-value">${f$(totFba)}</div><div class="kpi-sub">From Sales Dashboard CSV</div></div>
     <div class="kpi-card violet"><div class="kpi-label">Cost of Advertising</div><div class="kpi-value">${f$(-totAdv)}</div><div class="kpi-sub">Ad spend (priority source)</div></div>
   </div>
   <div class="row-2">
@@ -2752,7 +2757,7 @@ function renderAnnual(cc, c, allRecs) {
     const mrg=s25?((s26-s25)/s25*100):null;
     const urg=u25?((u26-u25)/u25*100):null;
     const advAmt=Math.abs(fin.adv||0);
-    const tacosDenom=fin.fba_sales||s26||0;
+    const tacosDenom=s26||0;
     const tacos=tacosDenom&&advAmt?(advAmt/tacosDenom*100).toFixed(1)+'%':'—';
     const tc=parseFloat(tacos)>20?'var(--red)':parseFloat(tacos)>10?'var(--amber)':'var(--green)';
     trows+=`<tr>
@@ -2763,7 +2768,7 @@ function renderAnnual(cc, c, allRecs) {
       <td style="text-align:right;color:var(--muted)">${u25||'—'}</td>
       <td style="text-align:right;font-weight:600">${u26||'—'}</td>
       <td style="text-align:right">${urg!==null?yoyCell(urg):'—'}</td>
-      <td style="text-align:right">${fin.fba_sales?f$(fin.fba_sales):'—'}</td>
+      <td style="text-align:right">${s26?f$(s26):'—'}</td>
       <td style="text-align:right;color:var(--red)">${fin.adv?f$(fin.adv):'—'}</td>
       <td style="text-align:right;color:${tc}">${tacos}</td>
     </tr>`;
@@ -2778,7 +2783,7 @@ function renderAnnual(cc, c, allRecs) {
     <td style="text-align:right">${u25tot||'—'}</td>
     <td style="text-align:right">${u26tot||'—'}</td>
     <td style="text-align:right">${ug!==null?yoyCell(ug):'—'}</td>
-    <td style="text-align:right">${totFba?f$(totFba):'—'}</td>
+    <td style="text-align:right">${s26tot?f$(s26tot):'—'}</td>
     <td style="text-align:right;color:var(--red)">${totAdv?f$(totAdv):'—'}</td>
     <td style="text-align:right">—</td>
   </tr>`;
@@ -2808,7 +2813,7 @@ function renderAnnual(cc, c, allRecs) {
   <div class="panel">
     <div class="panel-header"><span class="panel-title">Month-by-month breakdown</span></div>
     <div class="table-wrap"><table>
-      <thead><tr><th class="sortable" onclick="sortTable(this)" style="text-align:right">Month</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Sales 2025</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Sales 2026</th><th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">% change vs prior year</span></span></th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units 2025</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units 2026</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units Growth</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">FBA Sales</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Advertising</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">TACOS</th></tr></thead>
+      <thead><tr><th class="sortable" onclick="sortTable(this)" style="text-align:right">Month</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Sales 2025</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Sales 2026</th><th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">% change vs prior year</span></span></th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units 2025</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units 2026</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Units Growth</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Ordered Sales</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">Advertising</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">TACOS</th></tr></thead>
       <tbody>${trows}</tbody>
     </table></div>
   </div>
@@ -3197,7 +3202,7 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
     </div>`:''}
     ${txn26.length?`
     <div class="kpi-card" style="border-top-color:${tacosColor}">
-      <div class="kpi-label">TACOS <span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ad Spend ÷ FBA Sales. Under 12% healthy, 12-20% watch, over 20% high.</span></span></div>
+      <div class="kpi-label">TACOS <span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ad Spend ÷ Ordered Sales. Under 12% healthy, 12-20% watch, over 20% high.</span></span></div>
       <div class="kpi-value" style="color:${tacosColor}">${avgTacos.toFixed(1)}%</div>
       <div class="kpi-sub">${tacosLabel}</div>
     </div>`:''}
@@ -3365,7 +3370,7 @@ function renderAdvertising(cc, c, allRecs) {
       <div class="kpi-sub">Revenue base for TACOS</div>
     </div>
     <div class="kpi-card" style="border-top-color:${tacosColor(avgTacos)}">
-      <div class="kpi-label">TACOS (avg) <span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ad Spend ÷ Ordered Sales</span></span></div>
+      <div class="kpi-label">TACOS (avg) <span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ad Spend ÷ Ordered Sales (from Sales Dashboard CSV)</span></span></div>
       <div class="kpi-value" style="color:${tacosColor(avgTacos)}">${avgTacos.toFixed(2)}%</div>
       <div class="kpi-sub">${tacosLabel(avgTacos)}</div>
     </div>
@@ -3496,7 +3501,7 @@ function renderInsights(cc, c, allRecs) {
       txn26.forEach(r => {
         const d=r.data;
         const tacos=d.fba_sales?(Math.abs(d.adv||0)/d.fba_sales*100):0;
-        summary += `${r.period}: FBA Sales $${d.fba_sales?.toFixed(2)||0}, Ad Spend $${Math.abs(d.adv||0).toFixed(2)}, TACoS ${tacos.toFixed(1)}%, Refunds $${d.refunds?.toFixed(2)||0}\n`;
+        summary += `${r.period}: Ordered Sales $${d.fba_sales?.toFixed(2)||0}, Ad Spend $${Math.abs(d.adv||0).toFixed(2)}, TACoS ${tacos.toFixed(1)}%, Refunds $${d.refunds?.toFixed(2)||0}\n`;
       });
     }
 
