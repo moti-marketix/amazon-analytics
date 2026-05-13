@@ -3573,7 +3573,132 @@ async function generateInsights() {
 // ═══════════════════════════════════════════════════════════════════════════════
 function openDebugPanel() {
   document.getElementById('modalDebug').style.display='flex';
-  document.getElementById('debugOutput').innerHTML='';
+  // Run local audit immediately on open
+  runLocalAudit();
+}
+
+function runLocalAudit() {
+  const out = document.getElementById('debugOutput');
+  if (!out) return;
+
+  const EXPECTED_PERIODS = ['Jan 2026','Feb 2026','Mar 2026','Apr 2026'];
+  const EXPECTED_TYPES = ['business_csv','transaction_csv','summary_pdf'];
+  const rows = [];
+
+  S.clients.forEach(c => {
+    const recs = S.records.filter(r=>r.clientId===c.id);
+
+    c.markets.forEach(mkt => {
+      EXPECTED_PERIODS.forEach(period => {
+        const mktRecs = recs.filter(r=>r.market===mkt&&r.period===period);
+
+        // Check each expected type
+        EXPECTED_TYPES.forEach(type => {
+          const rec = mktRecs.find(r=>r.type===type);
+          if (!rec) {
+            rows.push({client:c.display,color:c.color,market:mkt,period,type,status:'missing',detail:'No record found'});
+            return;
+          }
+          // Check adv in summary_pdf
+          if (type==='summary_pdf') {
+            const adv = rec.data?.adv;
+            if (!adv || adv===0) {
+              rows.push({client:c.display,color:c.color,market:mkt,period,type,status:'warn',detail:'adv=0 (parser missed — re-upload PDF)'});
+            } else {
+              rows.push({client:c.display,color:c.color,market:mkt,period,type,status:'ok',detail:`adv=$${Math.abs(adv).toFixed(2)}`});
+            }
+          }
+          // Check income in transaction_csv
+          else if (type==='transaction_csv') {
+            const income = rec.data?.income;
+            if (!income || income===0) {
+              rows.push({client:c.display,color:c.color,market:mkt,period,type,status:'warn',detail:'income=0 (bad parse?)'});
+            } else {
+              rows.push({client:c.display,color:c.color,market:mkt,period,type,status:'ok',detail:`income=$${income.toFixed(2)}`});
+            }
+          }
+          // Check sales in business_csv
+          else if (type==='business_csv') {
+            const sales = rec.data?.snapshot?.sales;
+            if (!sales || sales===0) {
+              rows.push({client:c.display,color:c.color,market:mkt,period,type,status:'warn',detail:'sales=0'});
+            } else {
+              rows.push({client:c.display,color:c.color,market:mkt,period,type,status:'ok',detail:`sales=$${sales.toFixed(2)}`});
+            }
+          }
+        });
+      });
+    });
+  });
+
+  const missing = rows.filter(r=>r.status==='missing').length;
+  const warn    = rows.filter(r=>r.status==='warn').length;
+  const ok      = rows.filter(r=>r.status==='ok').length;
+
+  const statusIcon = s => s==='ok'?'✅':s==='warn'?'⚠️':'❌';
+  const statusColor = s => s==='ok'?'var(--green-lt)':s==='warn'?'var(--amber-lt)':'var(--red-lt)';
+  const statusBorder = s => s==='ok'?'#6ee7b7':s==='warn'?'#fcd34d':'#fca5a5';
+
+  // Group by client
+  const clients = [...new Set(rows.map(r=>r.client))];
+
+  out.innerHTML = `
+    <div style="display:flex;gap:10px;margin-bottom:14px">
+      <div style="flex:1;text-align:center;padding:10px;background:var(--green-lt);border-radius:8px;border:1px solid #6ee7b7">
+        <div style="font-size:20px;font-weight:700;color:var(--green)">${ok}</div>
+        <div style="font-size:10px;color:var(--green-dk)">OK</div>
+      </div>
+      <div style="flex:1;text-align:center;padding:10px;background:var(--amber-lt);border-radius:8px;border:1px solid #fcd34d">
+        <div style="font-size:20px;font-weight:700;color:var(--amber)">${warn}</div>
+        <div style="font-size:10px;color:var(--amber-dk)">WARNINGS</div>
+      </div>
+      <div style="flex:1;text-align:center;padding:10px;background:var(--red-lt);border-radius:8px;border:1px solid #fca5a5">
+        <div style="font-size:20px;font-weight:700;color:var(--red)">${missing}</div>
+        <div style="font-size:10px;color:var(--red-dk)">MISSING</div>
+      </div>
+    </div>
+    ${clients.map(client => {
+      const cRows = rows.filter(r=>r.client===client);
+      const cColor = cRows[0]?.color||'#666';
+      const hasIssues = cRows.some(r=>r.status!=='ok');
+      return `<details ${hasIssues?'open':''} style="margin-bottom:8px;border:1px solid var(--border);border-radius:8px;overflow:hidden">
+        <summary style="padding:10px 14px;cursor:pointer;font-weight:600;font-size:13px;background:var(--stripe);display:flex;align-items:center;gap:8px;list-style:none">
+          <span style="width:10px;height:10px;border-radius:50%;background:${cColor};display:inline-block;flex-shrink:0"></span>
+          ${client}
+          <span style="margin-left:auto;font-size:11px;color:var(--muted)">${cRows.filter(r=>r.status==='ok').length}/${cRows.length} ok</span>
+        </summary>
+        <div style="overflow-x:auto">
+        <table style="width:100%;font-size:11px;border-collapse:collapse">
+          <thead><tr style="background:var(--stripe)">
+            <th style="padding:5px 10px;text-align:left;font-size:10px;color:var(--muted)">Market</th>
+            <th style="padding:5px 10px;text-align:left;font-size:10px;color:var(--muted)">Period</th>
+            <th style="padding:5px 10px;text-align:left;font-size:10px;color:var(--muted)">Type</th>
+            <th style="padding:5px 10px;text-align:left;font-size:10px;color:var(--muted)">Status</th>
+            <th style="padding:5px 10px;text-align:left;font-size:10px;color:var(--muted)">Detail</th>
+          </tr></thead>
+          <tbody>
+            ${cRows.filter(r=>r.status!=='ok').map(r=>`<tr style="background:${statusColor(r.status)};border-bottom:1px solid ${statusBorder(r.status)}">
+              <td style="padding:5px 10px"><span style="background:var(--accent-lt);color:var(--accent);padding:1px 6px;border-radius:10px;font-weight:600">${r.market}</span></td>
+              <td style="padding:5px 10px;font-weight:600">${r.period}</td>
+              <td style="padding:5px 10px;color:var(--muted)">${r.type.replace(/_/g,' ')}</td>
+              <td style="padding:5px 10px">${statusIcon(r.status)}</td>
+              <td style="padding:5px 10px;color:var(--muted)">${r.detail}</td>
+            </tr>`).join('')}
+            ${cRows.filter(r=>r.status==='ok').map(r=>`<tr style="border-bottom:1px solid var(--stripe)">
+              <td style="padding:4px 10px"><span style="background:var(--accent-lt);color:var(--accent);padding:1px 6px;border-radius:10px;font-weight:600">${r.market}</span></td>
+              <td style="padding:4px 10px;font-weight:600">${r.period}</td>
+              <td style="padding:4px 10px;color:var(--muted)">${r.type.replace(/_/g,' ')}</td>
+              <td style="padding:4px 10px">✅</td>
+              <td style="padding:4px 10px;color:var(--muted)">${r.detail}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table></div>
+      </details>`;
+    }).join('')}
+    <div style="margin-top:12px;display:flex;gap:8px">
+      <button class="btn btn-primary" onclick="runSelfDebug(false)" style="flex:1">🤖 Deep AI Audit</button>
+      <button class="btn" onclick="runSelfDebug(true)" style="flex:1">💬 Ask Question</button>
+    </div>`;
 }
 
 async function runSelfDebug(questionOnly=false) {
