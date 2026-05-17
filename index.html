@@ -2377,14 +2377,17 @@ function bulkImport(){
           });
         } else if(q.type==='advertising_csv'&&parsed.byMonth){
           // Split advertising report into one record per market per month
+          // Convert spend to USD using current FX settings
+          const CURRENCY_TO_MARKET = {USD:'USA',CAD:'CA',GBP:'UK',EUR:'DE'};
           Object.entries(parsed.byMonth).forEach(([key,d])=>{
-            const period=d.month+' '+new Date().getFullYear();
-            // Find the year from filename or use current
             const yrMatch=q.file.name.match(/20\d{2}/);
             const yr=yrMatch?yrMatch[0]:new Date().getFullYear().toString();
+            // Convert spend to USD using toUSD with the market
+            const spendUSD = toUSD(d.spend, d.market);
             recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
               clientId:q.clientId,market:d.market,period:d.month+' '+yr,type:'advertising_csv',
-              filename:q.file.name,data:{adv:d.spend,clicks:d.clicks,impressions:d.impressions,currency:d.currency},
+              filename:q.file.name,
+              data:{adv:spendUSD, adv_local:d.spend, currency:d.currency, clicks:d.clicks, impressions:d.impressions},
               uploaded:new Date().toISOString(),parsed:true});
           });
         } else {
@@ -4422,8 +4425,8 @@ function parseAdvertisingCSV(text) {
 
     if(!monthNum || !country || !cost) continue;
 
-    const market = COUNTRY_MAP[country] || country;
-    const month  = MONTH_NAMES[monthNum];
+    const market  = COUNTRY_MAP[country] || country;
+    const month   = MONTH_NAMES[monthNum];
     if(!month) continue;
 
     const key = `${market}|${month}`;
@@ -4431,6 +4434,8 @@ function parseAdvertisingCSV(text) {
     byMarketMonth[key].spend       += cost;
     byMarketMonth[key].clicks      += clicks;
     byMarketMonth[key].impressions += imps;
+    // Keep the currency for this market (all rows for same market have same currency)
+    byMarketMonth[key].currency = currency;
   }
 
   // Round
