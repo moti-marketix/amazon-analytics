@@ -372,6 +372,7 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
               <option value="product_csv">Business Report CSV (products)</option>
               <option value="transaction_csv">Transaction Report CSV (replaces Summary PDF)</option>
               <option value="summary_pdf">Amazon Summary PDF</option>
+              <option value="advertising_csv">Advertising Report CSV (all markets)</option>
               <option value="inventory_csv">Inventory Report CSV</option>
               <option value="advertising_csv">Advertising Report CSV</option>
               <option value="other">Other</option>
@@ -914,8 +915,51 @@ function processUpload() {
   const period   = document.getElementById('upPeriod').value;
   const type     = document.getElementById('upType').value;
   if (!clientId) { setUpStatus('Select a client first.','warn'); return; }
-  if (!market)   { setUpStatus('Select a marketplace.','warn'); return; }
+  if (!market && type !== 'advertising_csv') { setUpStatus('Select a marketplace.','warn'); return; }
   if (!A.pendingFiles.length) { setUpStatus('No files selected.','warn'); return; }
+
+  // Advertising CSV — split into one record per market per month
+  if (type === 'advertising_csv') {
+    const file = A.pendingFiles[0];
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const parsed = parseAdvertisingCSV(ev.target.result);
+      if (!parsed.byMonth || !Object.keys(parsed.byMonth).length) {
+        setUpStatus('No data found in advertising report.', 'warn');
+        return;
+      }
+      const s = loadFxSettings();
+      const yrMatch = file.name.match(/20\d{2}/);
+      const yr = yrMatch ? yrMatch[0] : new Date().getFullYear().toString();
+      let count = 0;
+      Object.values(parsed.byMonth).forEach(d => {
+        const cur = (d.currency||'USD').toUpperCase();
+        let spendUSD = d.spend;
+        if(cur==='CAD'&&s.CAD>0) spendUSD = d.spend * s.CAD;
+        else if(cur==='GBP'&&s.GBP>0) spendUSD = d.spend * s.GBP;
+        else if(cur==='EUR'&&s.EUR>0) spendUSD = d.spend * s.EUR;
+        const record = {
+          id: 'r'+Date.now()+Math.random().toString(36).slice(2,5),
+          clientId, market: d.market, period: d.month+' '+yr,
+          type: 'advertising_csv', filename: file.name,
+          data: {adv: Math.round(spendUSD*100)/100, adv_local: d.spend, currency: d.currency, clicks: d.clicks, impressions: d.impressions},
+          uploaded: new Date().toISOString(), parsed: true
+        };
+        const idx = S.records.findIndex(x=>x.clientId===record.clientId&&x.market===record.market&&x.period===record.period&&x.type===record.type);
+        if(idx>=0) S.records[idx]=record; else S.records.push(record);
+        cloudSaveRecord(record);
+        count++;
+      });
+      saveState();
+      A.pendingFiles = [];
+      document.getElementById('upFilename').textContent = '';
+      document.getElementById('dropZone').classList.remove('has-file');
+      setUpStatus(`✓ Advertising report saved — ${count} market/month records.`, 'ok');
+      renderUploadHistory(); renderSidebar();
+    };
+    reader.readAsText(file);
+    return;
+  }
 
   // Summary PDFs get the manual entry modal with auto-fill
   if (type === 'summary_pdf') {
