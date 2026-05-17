@@ -313,6 +313,7 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
     <button id="btnReset" class="btn btn-sm btn-full" style="color:var(--faint);font-size:10px;display:none" onclick="resetToDemo()">Reset data</button>
     <button id="btnDeleteAll" class="btn btn-sm btn-full" style="color:#f87171;font-size:10px;display:none;margin-top:4px" onclick="confirmDeleteAll()">&#x1F5D1; Delete All Records</button>
     <button id="btnDebug" class="btn btn-sm btn-full" style="color:var(--accent);font-size:10px;display:none;margin-top:4px" onclick="openDebugPanel()">🔍 Debug Platform</button>
+    <button id="btnForceSync" class="btn btn-sm btn-full" style="color:var(--green);font-size:10px;display:none;margin-top:4px" onclick="forceSyncToSupabase()">☁️ Force Sync to Cloud</button>
     <div class="sb-bottom-note">Export saves all data.<br>Import restores on any device.</div>
   </div>
 </aside>
@@ -641,12 +642,41 @@ let _saveTimer = null;
 
 async function cloudSaveRecord(rec) {
   if (!_user || _role !== 'admin') return;
-  // Add to queue, deduplicate by id
   _saveQueue = _saveQueue.filter(r => r.id !== rec.id);
   _saveQueue.push(rec);
-  // Debounce — flush after 800ms of inactivity
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(flushSaveQueue, 800);
+}
+
+async function forceSyncToSupabase() {
+  const ind = document.getElementById('saveIndicator');
+  if (ind) { ind.textContent = '⏳ Syncing all records…'; ind.style.color='var(--amber)'; }
+  const CHUNK = 20;
+  let saved = 0, failed = 0;
+  const allRecs = [...S.records];
+  for (let i = 0; i < allRecs.length; i += CHUNK) {
+    const chunk = allRecs.slice(i, i + CHUNK);
+    try {
+      const rows = chunk.map(rec => ({
+        id: rec.id, client_id: rec.clientId, market: rec.market,
+        period: rec.period, type: rec.type, filename: rec.filename,
+        data: rec.data, uploaded: rec.uploaded, parsed: rec.parsed
+      }));
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
+      const {error} = await _SB.from('records').upsert(rows, {onConflict:'client_id,market,period,type'});
+      clearTimeout(timeout);
+      if (error) { console.error('Sync error:', error.message); failed += chunk.length; }
+      else saved += chunk.length;
+      if (ind) ind.textContent = `⏳ Syncing… ${saved}/${allRecs.length}`;
+    } catch(e) { failed += chunk.length; }
+    await new Promise(r => setTimeout(r, 500));
+  }
+  if (ind) {
+    ind.textContent = failed > 0 ? `⚠️ ${saved} synced, ${failed} failed` : `✓ All ${saved} records synced`;
+    ind.style.color = failed > 0 ? 'var(--red)' : 'var(--green)';
+    setTimeout(() => { if(ind) ind.textContent=''; }, 5000);
+  }
 }
 
 async function flushSaveQueue() {
@@ -696,6 +726,16 @@ async function flushSaveQueue() {
 }
 async function cloudLoad() {
   if (!_user) return;
+  // Save any advertising_csv records from localStorage before overwriting
+  let localAdvRecs = [];
+  try {
+    const saved = localStorage.getItem('aap4');
+    if (saved) {
+      const d = JSON.parse(saved);
+      localAdvRecs = (d.records||[]).filter(r=>r.type==='advertising_csv');
+    }
+  } catch(e) {}
+
   try {
     const [{data:cd,error:ce},{data:rd,error:re}] = await Promise.all([
       _SB.from('clients').select('*'),
@@ -704,13 +744,16 @@ async function cloudLoad() {
     if (ce || re) throw new Error((ce||re).message);
     S.clients = (cd||[]).map(c=>({id:c.id,display:c.display,legal:c.legal,color:c.color,markets:c.markets||[]}));
     S.records = (rd||[]).map(r=>({id:r.id,clientId:r.client_id,market:r.market,period:r.period,type:r.type,filename:r.filename,data:r.data,uploaded:r.uploaded,parsed:r.parsed}));
-    // Save to localStorage as backup
+    // Merge advertising_csv records from localStorage (not yet in Supabase)
+    localAdvRecs.forEach(lr => {
+      const exists = S.records.find(r=>r.clientId===lr.clientId&&r.market===lr.market&&r.period===lr.period&&r.type===lr.type);
+      if (!exists) S.records.push(lr);
+    });
     saveState();
     renderSidebar();
     renderHome();
   } catch(e) {
     console.warn('Supabase unavailable, loading from localStorage:', e.message);
-    // Fall back to localStorage
     try {
       const saved = localStorage.getItem('aap4');
       if (saved) {
@@ -4634,6 +4677,8 @@ async function _onSignIn(user){
   if(ab)ab.style.display=_role==='admin'?'block':'none';
   const dgb=document.getElementById('btnDebug');
   if(dgb)dgb.style.display=_role==='admin'?'block':'none';
+  const fsb=document.getElementById('btnForceSync');
+  if(fsb)fsb.style.display=_role==='admin'?'block':'none';
   const ue=document.getElementById('sbUserEmail');
   if(ue)ue.textContent=user.email;
   document.getElementById('loginOverlay').style.display='none';
