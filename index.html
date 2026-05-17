@@ -1155,13 +1155,18 @@ function parseTransactionCSV(text) {
   }
 
   // ── SETTLEMENT FORMAT (USA + EU settlement reports) ──────────────────────
-  // Find header row: contains date/time or datum/uhrzeit + type or typ
+  // Find header row: contains date/time or datum/uhrzeit or date/heure (FR) etc
   let hi = -1;
   for (let i=0; i<Math.min(15,lines.length); i++) {
     const l = lines[i].toLowerCase();
-    if ((l.includes('"date/time"')||l.includes('"datum/uhrzeit"')) &&
-        (l.includes('"type"')||l.includes('"typ"'))) { hi=i; break; }
-    if ((l.includes('settlement id')||l.includes('abrechnungsnummer')) && l.split(',').length>10) { hi=i; break; }
+    const hasDate = l.includes('"date/time"')||l.includes('"datum/uhrzeit"')||
+                    l.includes('"date/heure"')||l.includes('"data/ora"')||l.includes('"fecha/hora"');
+    const hasType = l.includes('"type"')||l.includes('"typ"')||l.includes('"type"')||
+                    l.includes('"tipo"');
+    if (hasDate && hasType) { hi=i; break; }
+    if ((l.includes('settlement id')||l.includes('abrechnungsnummer')||
+         l.includes('numéro de versement')||l.includes('numero di liquidazione')) && 
+         l.split(',').length>10) { hi=i; break; }
   }
   if (hi===-1) return {error:'Header row not found',_rows:0};
 
@@ -1172,19 +1177,21 @@ function parseTransactionCSV(text) {
     else cell+=ch;
   }
 
-  const isEuro2 = lines.slice(0,3).some(l=>l.toLowerCase().includes('euro')||l.toLowerCase().includes('alle beträge'));
+  const isEuro2 = lines.slice(0,5).some(l=>l.toLowerCase().includes('euro')||l.toLowerCase().includes('alle beträge')||l.toLowerCase().includes('montants sont en')||l.toLowerCase().includes('importi in'));
 
   const ci = name => hdrs2.findIndex(h=>h===name);
-  const typeCol  = ci('type')>=0  ? ci('type')  : ci('typ');
-  const descCol  = ci('description')>=0 ? ci('description') : ci('beschreibung');
-  const totalCol2= ci('total')>=0 ? ci('total') : hdrs2.findIndex(h=>h==='gesamt');
-  const salesCol = ci('product sales')>=0 ? ci('product sales') : hdrs2.findIndex(h=>h.includes('umsätze')||h==='umsatz');
-  const sfCol    = ci('selling fees')>=0 ? ci('selling fees') : hdrs2.findIndex(h=>h.includes('verkaufsgebühren'));
-  const fbaCol   = ci('fba fees')>=0 ? ci('fba fees') : hdrs2.findIndex(h=>h.includes('gebühren zu versand'));
-  const otxCol   = ci('other transaction fees');
-  const otherCol = ci('other')>=0 ? ci('other') : hdrs2.findIndex(h=>h==='andere');
-  const shipCol  = ci('shipping credits')>=0 ? ci('shipping credits') : hdrs2.findIndex(h=>h.includes('gutschrift'));
-  const vineCol  = ci('promotional rebates')>=0 ? ci('promotional rebates') : hdrs2.findIndex(h=>h.includes('rabatte'));
+  const cif = (...names) => { for(const n of names){const i=ci(n);if(i>=0)return i;} return -1; };
+  
+  const typeCol  = cif('type','typ','tipo');
+  const descCol  = cif('description','beschreibung','description');
+  const totalCol2= cif('total','gesamt');
+  const salesCol = cif('product sales','ventes de produits','umsätze','umsatz','vendite di prodotti','ventas de productos');
+  const sfCol    = cif('selling fees','frais de vente','verkaufsgebühren','commissioni di vendita','tarifas de venta');
+  const fbaCol   = cif('fba fees','frais expédié par amazon','gebühren zu versand','commissioni fba','tarifas de amazon');
+  const otxCol   = cif('other transaction fees','autres frais de transaction','andere transaktionsgebühren');
+  const otherCol = cif('other','autre','andere','altro','otro');
+  const shipCol  = cif('shipping credits',"crédits d'expédition",'versandgutschriften','crediti spedizione');
+  const vineCol  = cif('promotional rebates','rabais promotionnels','werberabatte','sconti promozionali');
 
   const rows2=[];
   for (let i=hi+1;i<lines.length;i++) {
@@ -1196,7 +1203,7 @@ function parseTransactionCSV(text) {
     if(cols.length<10) continue;
     const row={}; hdrs2.forEach((h,idx)=>row[h]=cols[idx]||'');
     const first=(cols[0]||'').trim();
-    if(first&&(/\d{4}/.test(first)||/\d{1,2}[./]\d{1,2}/.test(first))) rows2.push(row);
+    if(first&&(/\d{4}/.test(first)||/\d{1,2}[./]\d{1,2}/.test(first)||/\d{1,2}\s+\w+\.\s+\d{4}/.test(first))) rows2.push(row);
   }
   if(!rows2.length) return {error:'No data rows found',_rows:0};
 
@@ -1210,14 +1217,14 @@ function parseTransactionCSV(text) {
   const getDesc = r => (hdrs2[descCol]?r[hdrs2[descCol]]||'':'').trim().toLowerCase();
   const getCol  = (r,idx) => idx>=0&&hdrs2[idx]?n2(r[hdrs2[idx]]):0;
 
-  const ORD=['order','bestellung'];
-  const REF=['refund','erstattung'];
-  const ADJ=['adjustment','anpassung'];
-  const TRF=['transfer','übertrag'];
-  const SVC=['service fee','servicegebühr'];
-  const INV=['fba inventory fee','versand durch amazon lagergebühr'];
-  const LIQ=['liquidations','liquidationen'];
-  const ADV_DESCS=['cost of advertising','werbekosten'];
+  const ORD=['order','bestellung','commande','ordine','pedido'];
+  const REF=['refund','erstattung','remboursement','rimborso','reembolso'];
+  const ADJ=['adjustment','anpassung','ajustement','rettifica','ajuste'];
+  const TRF=['transfer','übertrag','transfert','trasferimento','transferencia'];
+  const SVC=['service fee','servicegebühr','frais de service','commissione servizio','tarifa de servicio'];
+  const INV=['fba inventory fee','versand durch amazon lagergebühr','frais de stock expédié par amazon','commissione magazzino fba'];
+  const LIQ=['liquidations','liquidationen','liquidation','liquidazione','liquidación'];
+  const ADV_DESCS=['cost of advertising','werbekosten','prix de la publicité','costo pubblicità','coste de publicidad','advertising','publicité','pubblicità','publicidad'];
 
   const isType=(r,types)=>types.includes(getType(r));
   const isAdv2 =r=>isType(r,SVC)&&ADV_DESCS.some(d=>getDesc(r).includes(d));
