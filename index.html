@@ -970,10 +970,11 @@ async function extractPDFText(file) {
 
 function parseFile(type, text, filename) {
   try {
-    if (type==='business_csv')   return parseBusinessCSV(text);
-    if (type==='product_csv')    return parseProductCSV(text);
+    if (type==='business_csv')    return parseBusinessCSV(text);
+    if (type==='product_csv')     return parseProductCSV(text);
     if (type==='transaction_csv') return parseTransactionCSV(text);
-    if (type==='economics_csv')    return parseEconomicsCSV(text);
+    if (type==='economics_csv')   return parseEconomicsCSV(text);
+    if (type==='advertising_csv') return parseAdvertisingCSV(text);
     return { raw: text.slice(0,400), note:'Stored as raw text' };
   } catch(e) { return { error:e.message }; }
 }
@@ -1229,8 +1230,8 @@ function parseSummaryPDF(text) {
     return 0;
   }
   const data = {
-    income:       find('Income\\s+Net sales.*?(' + num + ')'),
-    expenses:     find('Expenses\\s+Net fees.*?(' + num + ')'),
+    income:       0, // set below
+    expenses:     0, // set below
     transfers:    find('Transfers\\s+Net deposits.*?(' + num + ')'),
     fba_sales:    find('FBA product sales\\s+(' + num + ')'),
     refunds:      find('FBA product sale refunds\\s+(' + num + ')'),
@@ -1249,6 +1250,21 @@ function parseSummaryPDF(text) {
     bank:         find('Transfers to bank account\\s+(' + num + ')'),
     charges:      find('Charges to credit card and other debt recovery\\s+(' + num + ')'),
   };
+
+  // Income: appears just before "Expenses Expenses" in scrambled text
+  const incomeM = text.match(new RegExp('([\\d,]+\\.\\d{2})\\s+(?:[\\d,]+\\.\\d{2}\\s+)?Expenses\\s+Expenses'));
+  if (incomeM) data.income = parseFloat(incomeM[1].replace(/,/g,''));
+  // Fallback: use Adjustments line which has income total
+  if (!data.income) data.income = find('Adjustments\\s+(' + num + ')');
+
+  // Expenses: appears after "Transfers Transfers [value]" pattern
+  const expM = text.match(new RegExp('Transfers\\s+Transfers\\s+[\\d,]+\\.\\d{2}\\s+\\d+\\s+[\\d.]+\\s+(-[\\d,]+\\.\\d{2})'));
+  if (expM) data.expenses = parseFloat(expM[1].replace(/,/g,''));
+  // Fallback: largest negative number in text (expenses total is always the biggest)
+  if (!data.expenses) {
+    const negs = [...text.matchAll(/-[\d,]+\.\d{2}/g)].map(m=>parseFloat(m[0].replace(/,/g,'')));
+    if (negs.length) data.expenses = Math.min(...negs);
+  }
   // PDF text scrambles column layout — Cost of Advertising often parses as 0
   // Reliable fallback: the adv value consistently appears on the line after
   // "Disburse to Amazon Gift Card balance" in the scrambled text output
@@ -1513,7 +1529,7 @@ function renderSubView(c, recs, bizR, prodR, summR, allRecs) {
   else if (A.subNav==='products') renderProducts(cc, c, prodR);
   else if (A.subNav==='prod-yoy') renderProductYoY(cc, c, allRecsFiltered);
   else if (A.subNav==='advertising') renderAdvertising(cc, c, allRecsFiltered);
-  else if (A.subNav==='financials') renderFinancials(cc, c, summR);
+  else if (A.subNav==='financials') renderFinancials(cc, c, summR, allRecsFiltered);
   else if (A.subNav==='insights')  renderInsights(cc, c, allRecsFiltered);
   else if (A.subNav==='records')   renderRecords(cc, c, allRecsFiltered);
 }
@@ -1948,7 +1964,7 @@ function buildProdView(cc, c, prodR, sel) {
   },60);
 }
 
-function renderFinancials(cc, c, summR) {
+function renderFinancials(cc, c, summR, allRecs=[]) {
   // Split sources: transaction for everything, priority chain for ad spend only
   const txnR  = summR.filter(r=>r.type==='transaction_csv'&&r.data);
   const econR = summR.filter(r=>r.type==='economics_csv'&&r.data);
@@ -1976,14 +1992,18 @@ function renderFinancials(cc, c, summR) {
     MONEY_KEYS.forEach(k => {
       agg.data[k] = recs.reduce((s,r)=>s+toUSD(r.data[k]||0,r.market),0);
     });
-    // Ad spend: priority summary_pdf → economics_csv → transaction_csv
-    const pdfP  = pdfR.filter(r=>r.period===p);
+    // Ad spend: advertising_csv → economics_csv → transaction_csv
+    const advP  = allRecs.filter(r=>r.type==='advertising_csv'&&r.data&&r.period===p);
     const econP = econR.filter(r=>r.period===p);
-    agg.data.adv = pdfP.length
-      ? pdfP.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0) * -1
-      : econP.length
-        ? econP.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0) * -1
-        : recs.reduce((s,r)=>s+toUSD(r.data.adv||0,r.market),0);
+    const allMkts = new Set([...advP.map(r=>r.market),...econP.map(r=>r.market),...recs.map(r=>r.market)]);
+    let totalAdv = 0;
+    allMkts.forEach(mkt => {
+      const aM=advP.filter(r=>r.market===mkt), eM=econP.filter(r=>r.market===mkt), tM=recs.filter(r=>r.market===mkt);
+      if(aM.length) totalAdv+=aM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+      else if(eM.length) totalAdv+=eM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+      else totalAdv+=tM.reduce((s,r)=>s+toUSD(r.data.adv||0,r.market),0);
+    });
+    agg.data.adv = -totalAdv;
     return agg;
   });
 
@@ -2269,6 +2289,7 @@ function bulkParseName(filename){
   else if(/salesdashboard|sales.?dashboard/i.test(filename))type='business_csv';
   else if(/transaction/i.test(filename))type='transaction_csv';
   else if(/selling.?economics|economics.?fees|tortuga/i.test(filename))type='economics_csv';
+  else if(/^advertising[-_\s]/i.test(filename)||/[-_\s]advertising[-_\s]/i.test(filename))type='advertising_csv';
   else if(/^summary[\s\-_]/i.test(filename)||/[\s\-_]summary[\s\-_]/i.test(filename)||/^settlement[\s\-_]/i.test(filename)||/[\s\-_]settlement[\s\-_]/i.test(filename))type='summary_pdf';
   if(type==='economics_csv'){market='MULTI';}
   else{for(const mkt of BULK_MKT_SET){if(tokens.some(t=>t.toUpperCase()===mkt)){market=mkt;break;}}}
@@ -2298,7 +2319,7 @@ function bulkRenderTable(){
   tbody.innerHTML=bulkQueue.map((q,i)=>{
     const cl=CLIENT_REGISTRY.find(c=>c.id===q.clientId);
     const clLabel=cl?`<span style="color:${cl.color};font-weight:600">${cl.display}</span>`:`<span style="color:var(--red,#dc2626);font-size:11px">${q.clientDisplay||'?'} — not found</span>`;
-    const typeLabel={product_csv:'Business Report',business_csv:'Sales Dashboard',transaction_csv:'Transaction',economics_csv:'Selling Economics',summary_pdf:'Settlement / Summary PDF'}[q.type]||(q.type||'?');
+    const typeLabel={product_csv:'Business Report',business_csv:'Sales Dashboard',transaction_csv:'Transaction',economics_csv:'Selling Economics',summary_pdf:'Settlement / Summary PDF',advertising_csv:'Advertising Report'}[q.type]||(q.type||'?');
     const badge=q.status==='ready'?'<span class="chip chip-green">Ready</span>':`<span class="chip chip-amber" title="Missing: ${(q.missing||[]).join(', ')}">&#9888; ${(q.missing||[]).join(', ')}</span>`;
     const dis=q.status!=='ready'?'disabled':'';
     return `<tr style="opacity:${q.status==='ready'?1:.55}">`
@@ -2351,6 +2372,18 @@ function bulkImport(){
             recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
               clientId:q.clientId,market:mkt,period:q.period,type:'economics_csv',
               filename:q.file.name,data:mktData,uploaded:new Date().toISOString(),parsed:true});
+          });
+        } else if(q.type==='advertising_csv'&&parsed.byMonth){
+          // Split advertising report into one record per market per month
+          Object.entries(parsed.byMonth).forEach(([key,d])=>{
+            const period=d.month+' '+new Date().getFullYear();
+            // Find the year from filename or use current
+            const yrMatch=q.file.name.match(/20\d{2}/);
+            const yr=yrMatch?yrMatch[0]:new Date().getFullYear().toString();
+            recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
+              clientId:q.clientId,market:d.market,period:d.month+' '+yr,type:'advertising_csv',
+              filename:q.file.name,data:{adv:d.spend,clicks:d.clicks,impressions:d.impressions,currency:d.currency},
+              uploaded:new Date().toISOString(),parsed:true});
           });
         } else {
           recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
@@ -2689,15 +2722,24 @@ function renderAnnual(cc, c, allRecs) {
   const econAll = allRecs.filter(r=>r.type==='economics_csv'&&r.data);
   const summAll = allRecs.filter(r=>r.type==='summary_pdf'&&r.data);
 
-  // Build financial data by month — ad spend priority: summary_pdf → economics_csv → transaction_csv
-  // Build a combined adv lookup by period+market
-  const advByPeriod = {}; // period → total adv in USD
-  const advSources = summAll.length ? summAll : econAll.length ? econAll : txnAll;
-  advSources.forEach(r=>{
-    const parts=r.period.split(' '); if(parts.length!==2) return;
+  // Ad spend: advertising_csv → economics_csv → transaction_csv
+  const advAll = allRecs.filter(r=>r.type==='advertising_csv'&&r.data);
+  const advByPeriod = {};
+  const allAdvPeriods = [...new Set([...advAll.map(r=>r.period),...econAll.map(r=>r.period),...txnAll.map(r=>r.period)])];
+  allAdvPeriods.forEach(p => {
+    const advP=advAll.filter(r=>r.period===p), econP=econAll.filter(r=>r.period===p), txnP=txnAll.filter(r=>r.period===p);
+    const allMkts=new Set([...advP.map(r=>r.market),...econP.map(r=>r.market),...txnP.map(r=>r.market)]);
+    let total=0;
+    allMkts.forEach(mkt=>{
+      const aM=advP.filter(r=>r.market===mkt),eM=econP.filter(r=>r.market===mkt),tM=txnP.filter(r=>r.market===mkt);
+      if(aM.length) total+=aM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+      else if(eM.length) total+=eM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+      else total+=tM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+    });
+    const parts=p.split(' '); if(parts.length!==2) return;
     const [mon,yr]=parts;
     if(!advByPeriod[yr]) advByPeriod[yr]={};
-    advByPeriod[yr][mon]=(advByPeriod[yr][mon]||0)+toUSD(Math.abs(r.data.adv||0),r.market);
+    advByPeriod[yr][mon]=(advByPeriod[yr][mon]||0)+total;
   });
 
   // Build sales/units by month and year
@@ -2773,7 +2815,7 @@ function renderAnnual(cc, c, allRecs) {
       <td style="text-align:right;color:${tc}">${tacos}</td>
     </tr>`;
   });
-  const totAdv=advSources.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+  const totAdv=Object.values(advByPeriod).reduce((s,yr)=>s+Object.values(yr).reduce((a,b)=>a+b,0),0);
   const totFba=txnAll.reduce((s,r)=>s+toUSD(r.data.fba_sales||0,r.market),0);
   trows+=`<tr class="row-total">
     <td>Total</td>
@@ -3122,24 +3164,18 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
   const totIncome  = txn26.reduce((s,r)=>s+toUSD(r.data.income||0,r.market),0);
   const totExpenses= txn26.reduce((s,r)=>s+toUSD(r.data.expenses||0,r.market),0);
   const summ26 = summR.filter(r=>r.type==='summary_pdf'&&r.data);
-  // Ad spend priority PER MARKET: summary_pdf → economics_csv → transaction_csv
-  // When all markets selected, mix sources per market so EU markets aren't ignored
-  const summMarkets = new Set(summ26.map(r=>r.market));
-  const econMarkets = new Set(econ26.map(r=>r.market));
-  const totAdv = (() => {
-    // Get all markets present in any ad spend source
-    const allMkts = new Set([...summMarkets,...econMarkets,...txn26.map(r=>r.market)]);
-    let total = 0;
-    allMkts.forEach(mkt => {
-      const summM = summ26.filter(r=>r.market===mkt);
-      const econM = econ26.filter(r=>r.market===mkt);
-      const txnM  = txn26.filter(r=>r.market===mkt);
-      if (summM.length) total += summM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
-      else if (econM.length) total += econM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
-      else total += txnM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
-    });
-    return total;
-  })();
+  const adv26  = summR.filter(r=>r.type==='advertising_csv'&&r.data);
+  // Ad spend priority: advertising_csv → economics_csv → transaction_csv
+  function getAdvSpend(advRecs, econRecs, txnRecs, market) {
+    const aM=advRecs.filter(r=>r.market===market);
+    const eM=econRecs.filter(r=>r.market===market);
+    const tM=txnRecs.filter(r=>r.market===market);
+    if(aM.length) return aM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+    if(eM.length) return eM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+    return tM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+  }
+  const allAdvMkts = new Set([...adv26.map(r=>r.market),...econ26.map(r=>r.market),...txn26.map(r=>r.market)]);
+  const totAdv = [...allAdvMkts].reduce((s,mkt)=>s+getAdvSpend(adv26,econ26,txn26,mkt),0);
   const totFba = bizR.reduce((s,r)=>s+toUSD(r.data.snapshot?.sales||0,r.market),0);
   const avgTacos   = totFba ? (Math.abs(totAdv)/totFba*100) : 0;
   const salesGrowth= totSales25 ? ((totSales-totSales25)/totSales25*100) : null;
@@ -3249,25 +3285,20 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Units</th>
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Sales YoY</th>
         <th class="sortable" onclick="sortTable(this)" style="text-align:right">Units YoY</th>
-        ${(summ26.length||econ26.length||txn26.length)?'<th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">From Summary PDF (primary), SKU Economics, or Transaction report</span></span>Ad Spend</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">TACOS</th>':''}
+        ${(econ26.length||txn26.length)?'<th class="sortable" onclick="sortTable(this)" style="text-align:right"><span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">From SKU Economics CSV (primary) or Transaction report</span></span>Ad Spend</th><th class="sortable" onclick="sortTable(this)" style="text-align:right">TACOS</th>':''}
       </tr></thead>
       <tbody>
         ${sorted26.map(r=>{
           const sn=r.data.snapshot||{}, yy=r.data.yoy||{};
           const sg=yy.sales_25?((sn.sales-yy.sales_25)/yy.sales_25*100):null;
           const ug=yy.units_25?((sn.units-yy.units_25)/yy.units_25*100):null;
-          // Per-market priority per period: summary_pdf → economics_csv → transaction_csv
-          const summP=summ26.filter(s=>s.period===r.period);
+          // Ad spend per period: advertising_csv → economics_csv → transaction_csv
+          const advP=adv26.filter(a=>a.period===r.period);
           const econP=econ26.filter(e=>e.period===r.period);
           const txP=txn26.filter(t=>t.period===r.period);
-          const allMktsP=new Set([...summP.map(x=>x.market),...econP.map(x=>x.market),...txP.map(x=>x.market)]);
+          const allMktsP=new Set([...advP.map(x=>x.market),...econP.map(x=>x.market),...txP.map(x=>x.market)]);
           let advVal=0;
-          allMktsP.forEach(mkt=>{
-            const sM=summP.filter(x=>x.market===mkt),eM=econP.filter(x=>x.market===mkt),tM=txP.filter(x=>x.market===mkt);
-            if(sM.length) advVal+=sM.reduce((s,x)=>s+toUSD(Math.abs(x.data.adv||0),x.market),0);
-            else if(eM.length) advVal+=eM.reduce((s,x)=>s+toUSD(Math.abs(x.data.adv||0),x.market),0);
-            else advVal+=tM.reduce((s,x)=>s+toUSD(Math.abs(x.data.adv||0),x.market),0);
-          });
+          allMktsP.forEach(mkt=>{ advVal+=getAdvSpend(advP,econP,txP,mkt); });
           const hasAdv=allMktsP.size>0;
           const tc=hasAdv&&sn.sales?advVal/sn.sales*100:null;
           const tcColor=tc>20?'var(--red)':tc>12?'var(--amber)':'var(--green)';
@@ -3287,7 +3318,7 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
           <td style="text-align:right">${fn(totUnits)}</td>
           <td style="text-align:right">${salesGrowth!==null?yoyCell(salesGrowth):'—'}</td>
           <td style="text-align:right">${unitsGrowth!==null?yoyCell(unitsGrowth):'—'}</td>
-          ${(summ26.length||econ26.length||txn26.length)?`<td style="text-align:right;color:var(--red)">${fs$(totAdv)}</td><td style="text-align:right;font-weight:600;color:${tacosColor}">${avgTacos.toFixed(1)}%</td>`:''}
+          ${(econ26.length||txn26.length)?`<td style="text-align:right;color:var(--red)">${fs$(totAdv)}</td><td style="text-align:right;font-weight:600;color:${tacosColor}">${avgTacos.toFixed(1)}%</td>`:''}
         </tr>
       </tbody>
     </table></div>
@@ -3312,34 +3343,37 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
 function renderAdvertising(cc, c, allRecs) {
   const txn26  = allRecs.filter(r=>r.type==='transaction_csv'&&r.data&&r.period.includes('2026')).sort((a,b)=>periodSort(a.period,b.period));
   const econ26 = allRecs.filter(r=>r.type==='economics_csv'&&r.data&&r.period.includes('2026')).sort((a,b)=>periodSort(a.period,b.period));
-  const summ26 = allRecs.filter(r=>r.type==='summary_pdf'&&r.data&&r.period.includes('2026')).sort((a,b)=>periodSort(a.period,b.period));
+  const adv26r = allRecs.filter(r=>r.type==='advertising_csv'&&r.data&&r.period.includes('2026')).sort((a,b)=>periodSort(a.period,b.period));
   const biz26  = allRecs.filter(r=>r.type==='business_csv'&&r.data&&r.data.snapshot&&r.period.includes('2026'));
 
-  if (!txn26.length && !econ26.length && !summ26.length) {
-    cc.innerHTML = emptyPanel('No advertising data','Upload Transaction CSVs, SKU Economics CSVs, or Summary PDFs to see advertising metrics.');
+  if (!txn26.length && !econ26.length && !adv26r.length) {
+    cc.innerHTML = emptyPanel('No advertising data','Upload Transaction CSVs, SKU Economics CSVs, or Advertising Reports to see advertising metrics.');
     return;
   }
 
-  // Get all unique periods across all sources
-  const allPeriods = [...new Set([
-    ...txn26.map(r=>r.period),
-    ...econ26.map(r=>r.period),
-    ...summ26.map(r=>r.period)
-  ])].sort(periodSort);
+  const allPeriods = [...new Set([...txn26.map(r=>r.period),...econ26.map(r=>r.period),...adv26r.map(r=>r.period)])].sort(periodSort);
 
   const tacosColor = t => t>20?'var(--red)':t>12?'var(--amber)':'var(--green)';
   const tacosLabel = t => t>20?'High — review campaigns':t>12?'Moderate — watch trend':'Healthy';
 
-  // For each period, aggregate across ALL markets with priority: summary_pdf → economics_csv → transaction_csv
   const periodRows = allPeriods.map(p => {
-    const summP = summ26.filter(r=>r.period===p);
+    const advP  = adv26r.filter(r=>r.period===p);
     const econP = econ26.filter(r=>r.period===p);
     const txnP  = txn26.filter(r=>r.period===p);
     const bizP  = biz26.filter(r=>r.period===p);
 
-    const advVal = summP.length ? summP.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0)
-                 : econP.length ? econP.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0)
-                 : txnP.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+    // Ad spend: advertising_csv → economics_csv → transaction_csv
+    const advVal = (() => {
+      const allMkts = new Set([...advP.map(r=>r.market),...econP.map(r=>r.market),...txnP.map(r=>r.market)]);
+      let total = 0;
+      allMkts.forEach(mkt => {
+        const aM=advP.filter(r=>r.market===mkt), eM=econP.filter(r=>r.market===mkt), tM=txnP.filter(r=>r.market===mkt);
+        if(aM.length) total+=aM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+        else if(eM.length) total+=eM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+        else total+=tM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+      });
+      return total;
+    })();
 
     // FBA Sales: prefer business_csv ordered sales, fall back to transaction fba_sales
     const fbaVal = bizP.length ? bizP.reduce((s,r)=>s+toUSD(r.data.snapshot?.sales||0,r.market),0)
@@ -4340,6 +4374,76 @@ async function deleteUser(userId, email) {
   const { error } = await _SB.from('profiles').delete().eq('id', userId);
   if (error) { alert('Error: ' + error.message); return; }
   await renderUsersScreen();
+}
+
+
+function parseAdvertisingCSV(text) {
+  const lines = text.split('\n').filter(l=>l.trim());
+  if (lines.length < 2) return { error:'Empty file', byMonth:{} };
+
+  // Parse headers
+  const hdrs = [];
+  let inQ=false, cell='';
+  for (const ch of lines[0]+',') {
+    if(ch==='"'){inQ=!inQ;}
+    else if(ch===','&&!inQ){hdrs.push(cell.trim().replace(/^"|"$/g,'').toLowerCase());cell='';}
+    else cell+=ch;
+  }
+
+  const ci = name => hdrs.findIndex(h=>h===name.toLowerCase());
+  const monthCol   = ci('month');
+  const countryCol = ci('campaign country');
+  const costCol    = ci('total cost');
+  const currCol    = ci('campaign currency code');
+  const clicksCol  = ci('clicks');
+  const impCol     = ci('impressions');
+
+  const COUNTRY_MAP = {US:'USA',CA:'CA',UK:'UK',DE:'DE',FR:'FR',IT:'IT',ES:'ES',GB:'UK'};
+  const MONTH_NAMES = {1:'Jan',2:'Feb',3:'Mar',4:'Apr',5:'May',6:'Jun',7:'Jul',8:'Aug',9:'Sep',10:'Oct',11:'Nov',12:'Dec'};
+
+  // Parse rows - group by market+month
+  const byMarketMonth = {};
+
+  for (const raw of lines.slice(1)) {
+    const cols=[]; let q=false, c='';
+    for (const ch of raw+',') {
+      if(ch==='"'){q=!q;} else if(ch===','&&!q){cols.push(c.trim().replace(/^"|"$/g,'').replace(/^=""|""$/g,'').replace(/^=/,''));c=''} else c+=ch;
+    }
+    if(cols.length < 5) continue;
+
+    const monthNum  = parseInt(cols[monthCol]||'0');
+    const country   = (cols[countryCol]||'').trim().toUpperCase();
+    const cost      = parseFloat(cols[costCol]||'0') || 0;
+    const currency  = (cols[currCol]||'USD').trim().toUpperCase();
+    const clicks    = parseInt(cols[clicksCol]||'0') || 0;
+    const imps      = parseInt(cols[impCol]||'0') || 0;
+
+    if(!monthNum || !country || !cost) continue;
+
+    const market = COUNTRY_MAP[country] || country;
+    const month  = MONTH_NAMES[monthNum];
+    if(!month) continue;
+
+    const key = `${market}|${month}`;
+    if(!byMarketMonth[key]) byMarketMonth[key] = {market, month, spend:0, clicks:0, impressions:0, currency};
+    byMarketMonth[key].spend       += cost;
+    byMarketMonth[key].clicks      += clicks;
+    byMarketMonth[key].impressions += imps;
+  }
+
+  // Round
+  Object.values(byMarketMonth).forEach(d => {
+    d.spend = Math.round(d.spend * 100) / 100;
+  });
+
+  return {
+    byMonth: byMarketMonth,
+    markets: [...new Set(Object.values(byMarketMonth).map(d=>d.market))],
+    months:  [...new Set(Object.values(byMarketMonth).map(d=>d.month))],
+    _rows: lines.length-1,
+    _source: 'advertising_csv',
+    _auto_parsed: true
+  };
 }
 
 
