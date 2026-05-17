@@ -609,7 +609,7 @@ th.sort-desc::after { content:' ▼'; color:var(--accent); font-size:9px; }
 
 // ── SUPABASE ─────────────────────────────────────────────────────────────────
 const _SB = supabase.createClient('https://edhweiwwgvikipghhnvm.supabase.co', 'sb_publishable_-6aNfF4n4cOXPav9b--sbg_Vk22Wqav');
-let _user = null, _role = null, _userClientId = null, _userClientIds = [];
+let _user = null, _role = null, _userClientId = null, _userClientIds = [], _userToken = null;
 
 // ── CONSTANTS ─────────────────────────────────────────────────
 const COLORS  = ['#4F46E5','#059669','#D97706','#DC2626','#7C3AED','#2563EB','#0891B2','#BE185D'];
@@ -652,8 +652,7 @@ const SB_URL = 'https://edhweiwwgvikipghhnvm.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ';
 
 async function sbUpsert(rows) {
-  const session = await _SB.auth.getSession();
-  const token = session.data?.session?.access_token || SB_KEY;
+  const token = _userToken || SB_KEY;
   const res = await fetch(`${SB_URL}/rest/v1/records`, {
     method: 'POST',
     headers: {
@@ -4704,8 +4703,9 @@ async function _onSignIn(user){
     document.getElementById('loginOverlay').style.display='flex';
   }
   _SB.auth.onAuthStateChange(async(ev,sess)=>{
-    if(ev==='SIGNED_IN'&&sess)await _onSignIn(sess.user);
+    if(ev==='SIGNED_IN'&&sess){ _userToken = sess.access_token; await _onSignIn(sess.user); }
     else if(ev==='SIGNED_OUT'){
+      _userToken = null;
       document.getElementById('loginOverlay').style.display='flex';
     }
   });
