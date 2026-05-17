@@ -2292,6 +2292,7 @@ function bulkParseName(filename){
   else if(/^advertising[-_\s]/i.test(filename)||/[-_\s]advertising[-_\s]/i.test(filename))type='advertising_csv';
   else if(/^summary[\s\-_]/i.test(filename)||/[\s\-_]summary[\s\-_]/i.test(filename)||/^settlement[\s\-_]/i.test(filename)||/[\s\-_]settlement[\s\-_]/i.test(filename))type='summary_pdf';
   if(type==='economics_csv'){market='MULTI';}
+  if(type==='advertising_csv'){market='MULTI';}
   else{for(const mkt of BULK_MKT_SET){if(tokens.some(t=>t.toUpperCase()===mkt)){market=mkt;break;}}}
   const yr=tokens.find(t=>/^20\d{2}$/.test(t));if(yr)year=yr;
   for(const t of tokens){const m=BULK_MONTHS[t.toLowerCase()];if(m){month=m;break;}}
@@ -2299,7 +2300,8 @@ function bulkParseName(filename){
   const period=(month&&year)?month+' '+year:null;
   const missing=[];
   if(!type)missing.push('type');if(!clientId)missing.push('client');
-  if(!market&&type!=='economics_csv')missing.push('market');if(!period)missing.push('period');
+  if(!market&&type!=='economics_csv'&&type!=='advertising_csv')missing.push('market');
+  if(!period&&type!=='advertising_csv')missing.push('period');
   return {type,clientId,clientDisplay,market,period,status:missing.length===0?'ready':'incomplete',missing};
 }
 let bulkQueue=[];
