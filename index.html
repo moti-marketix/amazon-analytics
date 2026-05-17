@@ -648,6 +648,26 @@ async function cloudSaveRecord(rec) {
   _saveTimer = setTimeout(flushSaveQueue, 800);
 }
 
+const SB_URL = 'https://edhweiwwgvikipghhnvm.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ';
+
+async function sbUpsert(rows) {
+  const session = await _SB.auth.getSession();
+  const token = session.data?.session?.access_token || SB_KEY;
+  const res = await fetch(`${SB_URL}/rest/v1/records`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SB_KEY,
+      'Authorization': `Bearer ${token}`,
+      'Prefer': 'resolution=merge-duplicates,return=minimal'
+    },
+    body: JSON.stringify(rows)
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return true;
+}
+
 async function forceSyncToSupabase() {
   const ind = document.getElementById('saveIndicator');
   if (ind) { ind.textContent = '⏳ Syncing all records…'; ind.style.color='var(--amber)'; }
@@ -662,15 +682,11 @@ async function forceSyncToSupabase() {
         period: rec.period, type: rec.type, filename: rec.filename,
         data: rec.data, uploaded: rec.uploaded, parsed: rec.parsed
       }));
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-      const {error} = await _SB.from('records').upsert(rows, {onConflict:'client_id,market,period,type'});
-      clearTimeout(timeout);
-      if (error) { console.error('Sync error:', error.message); failed += chunk.length; }
-      else saved += chunk.length;
+      await sbUpsert(rows);
+      saved += chunk.length;
       if (ind) ind.textContent = `⏳ Syncing… ${saved}/${allRecs.length}`;
-    } catch(e) { failed += chunk.length; }
-    await new Promise(r => setTimeout(r, 500));
+    } catch(e) { console.error('Sync error:', e.message); failed += chunk.length; }
+    await new Promise(r => setTimeout(r, 300));
   }
   if (ind) {
     ind.textContent = failed > 0 ? `⚠️ ${saved} synced, ${failed} failed` : `✓ All ${saved} records synced`;
@@ -683,10 +699,8 @@ async function flushSaveQueue() {
   if (!_saveQueue.length || !_user) return;
   const batch = [..._saveQueue];
   _saveQueue = [];
-  // Show saving indicator
   const ind = document.getElementById('saveIndicator');
   if (ind) { ind.textContent = `⏳ Saving ${batch.length} records…`; ind.style.color='var(--amber)'; }
-  // Save in chunks of 10
   const CHUNK = 10;
   let saved = 0;
   for (let i = 0; i < batch.length; i += CHUNK) {
@@ -697,19 +711,14 @@ async function flushSaveQueue() {
         period: rec.period, type: rec.type, filename: rec.filename,
         data: rec.data, uploaded: rec.uploaded, parsed: rec.parsed
       }));
-      const {error} = await _SB.from('records').upsert(rows, {onConflict:'client_id,market,period,type'});
-      if (error) {
-        console.error('Batch save error:', error.message);
-        _saveQueue.push(...chunk);
-      } else {
-        saved += chunk.length;
-        if (ind) ind.textContent = `⏳ Saving… ${saved}/${batch.length}`;
-      }
+      await sbUpsert(rows);
+      saved += chunk.length;
+      if (ind) ind.textContent = `⏳ Saving… ${saved}/${batch.length}`;
     } catch(e) {
-      console.error('Batch save exception:', e.message);
+      console.error('Save error:', e.message);
       _saveQueue.push(...chunk);
     }
-    if (i + CHUNK < batch.length) await new Promise(r => setTimeout(r, 300));
+    if (i + CHUNK < batch.length) await new Promise(r => setTimeout(r, 200));
   }
   if (ind) {
     const failed = batch.length - saved;
