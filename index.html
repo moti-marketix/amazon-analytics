@@ -696,21 +696,29 @@ async function flushSaveQueue() {
 }
 async function cloudLoad() {
   if (!_user) return;
-  // Always start clean — wipe localStorage so stale data never bleeds through
-  S.clients = []; S.records = [];
-  try { localStorage.removeItem('aap4'); } catch(e) {}
   try {
     const [{data:cd,error:ce},{data:rd,error:re}] = await Promise.all([
       _SB.from('clients').select('*'),
       _SB.from('records').select('*')
     ]);
-    if (ce) throw ce; if (re) throw re;
+    if (ce || re) throw new Error((ce||re).message);
     S.clients = (cd||[]).map(c=>({id:c.id,display:c.display,legal:c.legal,color:c.color,markets:c.markets||[]}));
     S.records = (rd||[]).map(r=>({id:r.id,clientId:r.client_id,market:r.market,period:r.period,type:r.type,filename:r.filename,data:r.data,uploaded:r.uploaded,parsed:r.parsed}));
+    // Save to localStorage as backup
+    saveState();
     renderSidebar();
     renderHome();
   } catch(e) {
-    console.error('Cloud load failed:', e.message);
+    console.warn('Supabase unavailable, loading from localStorage:', e.message);
+    // Fall back to localStorage
+    try {
+      const saved = localStorage.getItem('aap4');
+      if (saved) {
+        const d = JSON.parse(saved);
+        if(d.clients) S.clients = d.clients;
+        if(d.records) S.records = d.records;
+      }
+    } catch(le) {}
     renderSidebar();
     renderHome();
   }
