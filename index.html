@@ -2051,7 +2051,7 @@ function renderFinancials(cc, c, summR, allRecs=[]) {
     let totalAdv = 0;
     allMkts.forEach(mkt => {
       const aM=advP.filter(r=>r.market===mkt), eM=econP.filter(r=>r.market===mkt), tM=recs.filter(r=>r.market===mkt);
-      if(aM.length) totalAdv+=aM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+      if(aM.length) totalAdv+=aM.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
       else if(eM.length) totalAdv+=eM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
       else totalAdv+=tM.reduce((s,r)=>s+toUSD(r.data.adv||0,r.market),0);
     });
@@ -2793,7 +2793,7 @@ function renderAnnual(cc, c, allRecs) {
     let total=0;
     allMkts.forEach(mkt=>{
       const aM=advP.filter(r=>r.market===mkt),eM=econP.filter(r=>r.market===mkt),tM=txnP.filter(r=>r.market===mkt);
-      if(aM.length) total+=aM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+      if(aM.length) total+=aM.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
       else if(eM.length) total+=eM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
       else total+=tM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
     });
@@ -3231,7 +3231,8 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
     const aM=advRecs.filter(r=>r.market===market);
     const eM=econRecs.filter(r=>r.market===market);
     const tM=txnRecs.filter(r=>r.market===market);
-    if(aM.length) return aM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+    // advertising_csv adv is already stored in USD — no toUSD conversion needed
+    if(aM.length) return aM.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
     if(eM.length) return eM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
     return tM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
   }
@@ -3429,7 +3430,7 @@ function renderAdvertising(cc, c, allRecs) {
       let total = 0;
       allMkts.forEach(mkt => {
         const aM=advP.filter(r=>r.market===mkt), eM=econP.filter(r=>r.market===mkt), tM=txnP.filter(r=>r.market===mkt);
-        if(aM.length) total+=aM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
+        if(aM.length) total+=aM.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
         else if(eM.length) total+=eM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
         else total+=tM.reduce((s,r)=>s+toUSD(Math.abs(r.data.adv||0),r.market),0);
       });
