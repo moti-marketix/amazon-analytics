@@ -2378,16 +2378,20 @@ function bulkImport(){
         } else if(q.type==='advertising_csv'&&parsed.byMonth){
           // Split advertising report into one record per market per month
           // Convert spend to USD using current FX settings
-          const CURRENCY_TO_MARKET = {USD:'USA',CAD:'CA',GBP:'UK',EUR:'DE'};
           Object.entries(parsed.byMonth).forEach(([key,d])=>{
             const yrMatch=q.file.name.match(/20\d{2}/);
             const yr=yrMatch?yrMatch[0]:new Date().getFullYear().toString();
-            // Convert spend to USD using toUSD with the market
-            const spendUSD = toUSD(d.spend, d.market);
+            // Convert spend to USD using the currency code directly
+            const s = loadFxSettings();
+            const cur = d.currency.toUpperCase();
+            let spendUSD = d.spend;
+            if(cur==='CAD'&&s.CAD>0) spendUSD = d.spend * s.CAD;
+            else if(cur==='GBP'&&s.GBP>0) spendUSD = d.spend * s.GBP;
+            else if(cur==='EUR'&&s.EUR>0) spendUSD = d.spend * s.EUR;
             recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
               clientId:q.clientId,market:d.market,period:d.month+' '+yr,type:'advertising_csv',
               filename:q.file.name,
-              data:{adv:spendUSD, adv_local:d.spend, currency:d.currency, clicks:d.clicks, impressions:d.impressions},
+              data:{adv:Math.round(spendUSD*100)/100, adv_local:d.spend, currency:d.currency, clicks:d.clicks, impressions:d.impressions},
               uploaded:new Date().toISOString(),parsed:true});
           });
         } else {
@@ -4399,7 +4403,7 @@ function parseAdvertisingCSV(text) {
   const monthCol   = ci('month');
   const countryCol = ci('campaign country');
   const costCol    = ci('total cost');
-  const currCol    = ci('campaign currency code');
+  const currCol    = ci('budget currency');  // 'Campaign currency code' is empty — use Budget currency
   const clicksCol  = ci('clicks');
   const impCol     = ci('impressions');
 
