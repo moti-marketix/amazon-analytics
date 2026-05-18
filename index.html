@@ -1043,12 +1043,15 @@ function processUpload() {
     const reader = new FileReader();
     reader.onload = ev => {
       const parsed = parseFile(type, ev.target.result, file.name);
-      S.records.push({
-        id: 'r'+Date.now()+Math.random().toString(36).slice(2,5),
+      const recId = `${type}_${clientId}_${market}_${period}`.replace(/\s+/g,'_');
+      const record = {
+        id: recId,
         clientId, market, period, type,
         filename: file.name, data: parsed,
         uploaded: new Date().toISOString(), parsed: !!parsed
-      });
+      };
+      const idx = S.records.findIndex(x=>x.clientId===clientId&&x.market===market&&x.period===period&&x.type===type);
+      if(idx>=0) S.records[idx]=record; else S.records.push(record);
       done++;
       if (done === A.pendingFiles.length) {
         saveState();
@@ -1405,13 +1408,16 @@ function parseSummaryPDF(text) {
 function autoSaveSummary(ctx) {
   // Parser got enough fields — save directly without manual entry
   const d = ctx.data;
-  S.records.push({
-    id: 'r'+Date.now()+Math.random().toString(36).slice(2,5),
+  const recId = `summary_pdf_${ctx.clientId}_${ctx.market}_${ctx.period}`.replace(/\s+/g,'_');
+  const rec = {
+    id: recId,
     clientId: ctx.clientId, market: ctx.market,
     period: ctx.period, type: 'summary_pdf',
     filename: ctx.filename, data: d,
     uploaded: new Date().toISOString(), parsed: true
-  });
+  };
+  const idx = S.records.findIndex(x=>x.clientId===rec.clientId&&x.market===rec.market&&x.period===rec.period&&x.type===rec.type);
+  if(idx>=0) S.records[idx]=rec; else S.records.push(rec);
   saveState();
   A.pendingFiles = [];
   document.getElementById('upFilename').textContent = '';
@@ -1506,8 +1512,9 @@ function saveSummaryRecord() {
     alert('Please enter at least Total Income and FBA Product Sales before saving.');
     return;
   }
-  S.records.push({
-    id: 'r'+Date.now()+Math.random().toString(36).slice(2,5),
+  const smId = `summary_pdf_${SM_CTX.clientId}_${SM_CTX.market}_${SM_CTX.period}`.replace(/\s+/g,'_');
+  const smRec = {
+    id: smId,
     clientId: SM_CTX.clientId,
     market:   SM_CTX.market,
     period:   SM_CTX.period,
@@ -1516,7 +1523,9 @@ function saveSummaryRecord() {
     data,
     uploaded: new Date().toISOString(),
     parsed:   true
-  });
+  };
+  const smIdx = S.records.findIndex(x=>x.clientId===smRec.clientId&&x.market===smRec.market&&x.period===smRec.period&&x.type===smRec.type);
+  if(smIdx>=0) S.records[smIdx]=smRec; else S.records.push(smRec);
   saveState();
   A.pendingFiles = [];
   document.getElementById('upFilename').textContent = '';
@@ -2487,31 +2496,31 @@ function bulkImport(){
         const recordsToSave = [];
         if(q.type==='economics_csv'&&parsed.markets){
           Object.entries(parsed.markets).forEach(([mkt,mktData])=>{
-            recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
+            const recId=`economics_csv_${q.clientId}_${mkt}_${q.period}`.replace(/\s+/g,'_');
+            recordsToSave.push({id:recId,
               clientId:q.clientId,market:mkt,period:q.period,type:'economics_csv',
               filename:q.file.name,data:mktData,uploaded:new Date().toISOString(),parsed:true});
           });
         } else if(q.type==='advertising_csv'&&parsed.byMonth){
-          // Split advertising report into one record per market per month
-          // Convert spend to USD using current FX settings
           Object.entries(parsed.byMonth).forEach(([key,d])=>{
             const yrMatch=q.file.name.match(/20\d{2}/);
             const yr=yrMatch?yrMatch[0]:new Date().getFullYear().toString();
-            // Convert spend to USD using the currency code directly
             const s = loadFxSettings();
-            const cur = d.currency.toUpperCase();
+            const cur = (d.currency||'USD').toUpperCase();
             let spendUSD = d.spend;
             if(cur==='CAD'&&s.CAD>0) spendUSD = d.spend * s.CAD;
             else if(cur==='GBP'&&s.GBP>0) spendUSD = d.spend * s.GBP;
             else if(cur==='EUR'&&s.EUR>0) spendUSD = d.spend * s.EUR;
-            recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
+            const recId=`adv_${q.clientId}_${d.market}_${d.month}_${yr}`.replace(/\s+/g,'_');
+            recordsToSave.push({id:recId,
               clientId:q.clientId,market:d.market,period:d.month+' '+yr,type:'advertising_csv',
               filename:q.file.name,
               data:{adv:Math.round(spendUSD*100)/100, adv_local:d.spend, currency:d.currency, clicks:d.clicks, impressions:d.impressions},
               uploaded:new Date().toISOString(),parsed:true});
           });
         } else {
-          recordsToSave.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
+          const recId=`${q.type}_${q.clientId}_${q.market}_${q.period}`.replace(/\s+/g,'_');
+          recordsToSave.push({id:recId,
             clientId:q.clientId,market:q.market,period:q.period,type:q.type,
             filename:q.file.name,data:parsed,uploaded:new Date().toISOString(),parsed:true});
         }
