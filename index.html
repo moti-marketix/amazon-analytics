@@ -1172,18 +1172,19 @@ function parseTransactionCSV(text) {
   }
 
   // ── SETTLEMENT FORMAT (USA + EU settlement reports) ──────────────────────
-  // Find header row: contains date/time or datum/uhrzeit or date/heure (FR) etc
+  // Find header row: detect by date column name in any language
   let hi = -1;
   for (let i=0; i<Math.min(15,lines.length); i++) {
     const l = lines[i].toLowerCase();
     const hasDate = l.includes('"date/time"')||l.includes('"datum/uhrzeit"')||
-                    l.includes('"date/heure"')||l.includes('"data/ora"')||l.includes('"fecha/hora"');
-    const hasType = l.includes('"type"')||l.includes('"typ"')||l.includes('"type"')||
-                    l.includes('"tipo"');
-    if (hasDate && hasType) { hi=i; break; }
-    if ((l.includes('settlement id')||l.includes('abrechnungsnummer')||
-         l.includes('numéro de versement')||l.includes('numero di liquidazione')) && 
-         l.split(',').length>10) { hi=i; break; }
+                    l.includes('"date/heure"')||l.includes('"data/ora')||
+                    l.includes('"fecha/hora"')||l.includes('"fecha/hora')||
+                    l.includes('"date"')&&l.includes('"type"');
+    const hasSettle = l.includes('settlement id')||l.includes('abrechnungsnummer')||
+                      l.includes('numéro de versement')||l.includes('numero di liquidazione')||
+                      l.includes('numero pagamento')||l.includes('número de liquidación')||
+                      l.includes('número de pago');
+    if (hasDate || (hasSettle && l.split(',').length>10)) { hi=i; break; }
   }
   if (hi===-1) return {error:'Header row not found',_rows:0};
 
@@ -1200,15 +1201,15 @@ function parseTransactionCSV(text) {
   const cif = (...names) => { for(const n of names){const i=ci(n);if(i>=0)return i;} return -1; };
   
   const typeCol  = cif('type','typ','tipo');
-  const descCol  = cif('description','beschreibung','description');
-  const totalCol2= cif('total','gesamt');
-  const salesCol = cif('product sales','ventes de produits','umsätze','umsatz','vendite di prodotti','ventas de productos');
-  const sfCol    = cif('selling fees','frais de vente','verkaufsgebühren','commissioni di vendita','tarifas de venta');
-  const fbaCol   = cif('fba fees','frais expédié par amazon','gebühren zu versand','commissioni fba','tarifas de amazon');
-  const otxCol   = cif('other transaction fees','autres frais de transaction','andere transaktionsgebühren');
+  const descCol  = cif('description','beschreibung','description','descrizione','descripción');
+  const totalCol2= cif('total','gesamt','totale','total');
+  const salesCol = cif('product sales','ventes de produits','umsätze','umsatz','vendite di prodotti','ventas de productos','vendite','ventas');
+  const sfCol    = cif('selling fees','frais de vente','verkaufsgebühren','commissioni di vendita','tarifas de venta','commissioni di vendita','commissioni');
+  const fbaCol   = cif('fba fees','frais expédié par amazon','gebühren zu versand','costi del servizio logistica di amazon','tarifas de amazon','costi del servizio logistica');
+  const otxCol   = cif('other transaction fees','autres frais de transaction','andere transaktionsgebühren','altri costi relativi alle transazioni','otros costos de transacción');
   const otherCol = cif('other','autre','andere','altro','otro');
-  const shipCol  = cif('shipping credits',"crédits d'expédition",'versandgutschriften','crediti spedizione');
-  const vineCol  = cif('promotional rebates','rabais promotionnels','werberabatte','sconti promozionali');
+  const shipCol  = cif('shipping credits',"crédits d'expédition",'versandgutschriften','accrediti per le spedizioni','créditos de envío');
+  const vineCol  = cif('promotional rebates','rabais promotionnels','werberabatte','sconti promozionali','descuentos promocionales');
 
   const rows2=[];
   for (let i=hi+1;i<lines.length;i++) {
@@ -1222,7 +1223,10 @@ function parseTransactionCSV(text) {
     const first=(cols[0]||'').trim();
     if(first&&(/\d{4}/.test(first)||/\d{1,2}[./]\d{1,2}/.test(first)||/\d{1,2}\s+\w+\.\s+\d{4}/.test(first))) rows2.push(row);
   }
-  if(!rows2.length) return {error:'No data rows found',_rows:0};
+  if(!rows2.length) return {income:0,expenses:0,fba_sales:0,refunds:0,inv_credit:0,vine:0,
+    shipping:0,liquidation:0,selling_fees:0,tx_fees:0,inbound:0,adv:0,adjustments:0,
+    service_fees:0,refund_admin:0,liq_fees:0,bank:0,charges:0,tacos:0,transfers:0,
+    _rows:0,_source:'transaction_csv',_parse_score:0,_parse_total:19,_auto_parsed:true,_empty:true};
 
   const n2 = s => {
     let v=(s||'').replace(/"/g,'').trim();
@@ -1235,13 +1239,16 @@ function parseTransactionCSV(text) {
   const getCol  = (r,idx) => idx>=0&&hdrs2[idx]?n2(r[hdrs2[idx]]):0;
 
   const ORD=['order','bestellung','commande','ordine','pedido'];
-  const REF=['refund','erstattung','remboursement','rimborso','reembolso'];
+  const REF=['refund','erstattung','remboursement','rimborso','reembolso','reso'];
   const ADJ=['adjustment','anpassung','ajustement','rettifica','ajuste'];
   const TRF=['transfer','übertrag','transfert','trasferimento','transferencia'];
-  const SVC=['service fee','servicegebühr','frais de service','commissione servizio','tarifa de servicio'];
-  const INV=['fba inventory fee','versand durch amazon lagergebühr','frais de stock expédié par amazon','commissione magazzino fba'];
+  const SVC=['service fee','servicegebühr','frais de service','commissione di servizio','tarifa de servicio','commissione servizio'];
+  const INV=['fba inventory fee','versand durch amazon lagergebühr','frais de stock expédié par amazon',
+             'costo di stoccaggio logistica di amazon','tarifa de almacenamiento de amazon logística'];
   const LIQ=['liquidations','liquidationen','liquidation','liquidazione','liquidación'];
-  const ADV_DESCS=['cost of advertising','werbekosten','prix de la publicité','costo pubblicità','coste de publicidad','advertising','publicité','pubblicità','publicidad'];
+  const ADV_DESCS=['cost of advertising','werbekosten','prix de la publicité','costo della pubblicità',
+                   'coste de publicidad','advertising','publicité','pubblicità','publicidad',
+                   'costo della pubblicità','costo de la publicidad'];
 
   const isType=(r,types)=>types.includes(getType(r));
   const isAdv2 =r=>isType(r,SVC)&&ADV_DESCS.some(d=>getDesc(r).includes(d));
