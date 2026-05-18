@@ -652,17 +652,40 @@ const SB_URL = 'https://edhweiwwgvikipghhnvm.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ';
 
 async function sbUpsert(rows) {
-  const token = _userToken || SB_KEY;
-  const res = await fetch(`${SB_URL}/rest/v1/records`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': SB_KEY,
-      'Authorization': `Bearer ${token}`,
-      'Prefer': 'resolution=merge-duplicates,return=minimal'
-    },
-    body: JSON.stringify(rows)
-  });
+  const doFetch = async (token) => {
+    return fetch(`${SB_URL}/rest/v1/records`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SB_KEY,
+        'Authorization': `Bearer ${token}`,
+        'Prefer': 'resolution=merge-duplicates,return=minimal'
+      },
+      body: JSON.stringify(rows)
+    });
+  };
+
+  let token = _userToken || SB_KEY;
+  let res = await doFetch(token);
+
+  // If 401, try to refresh the session
+  if (res.status === 401) {
+    try {
+      const {data} = await Promise.race([
+        _SB.auth.refreshSession(),
+        new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),5000))
+      ]);
+      if (data?.session?.access_token) {
+        _userToken = data.session.access_token;
+        token = _userToken;
+        res = await doFetch(token);
+      }
+    } catch(e) {
+      // If refresh fails, sign out user
+      console.warn('Token refresh failed:', e.message);
+    }
+  }
+
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
   return true;
 }
@@ -4710,7 +4733,9 @@ async function _onSignIn(user){
     document.getElementById('loginOverlay').style.display='flex';
   }
   _SB.auth.onAuthStateChange(async(ev,sess)=>{
-    if(ev==='SIGNED_IN'&&sess){ _userToken = sess.access_token; await _onSignIn(sess.user); }
+    if(sess?.access_token) _userToken = sess.access_token;
+    if(ev==='SIGNED_IN'&&sess){ await _onSignIn(sess.user); }
+    else if(ev==='TOKEN_REFRESHED'&&sess){ _userToken = sess.access_token; }
     else if(ev==='SIGNED_OUT'){
       _userToken = null;
       document.getElementById('loginOverlay').style.display='flex';
