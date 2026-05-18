@@ -653,7 +653,7 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 async function sbUpsert(rows) {
   const token = _userToken || SB_KEY;
-  const res = await fetch(`${SB_URL}/rest/v1/records`, {
+  const res = await fetch(`${SB_URL}/rest/v1/records?on_conflict=client_id,market,period,type`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
