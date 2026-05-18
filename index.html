@@ -3894,7 +3894,7 @@ function renderInsights(cc, c, allRecs) {
         ${insightBox('How it works',
           'Click <strong>Generate Insights</strong> to send your data to Claude AI for analysis. You\'ll receive a structured business review covering performance trends, product health, advertising efficiency, and actionable recommendations — written in plain English for your clients.',
           'var(--accent-lt)','var(--accent-b)','var(--accent)')}
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:4px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:4px;margin-bottom:16px">
           <div style="border:1px solid var(--border);border-radius:8px;padding:12px;text-align:center">
             <div style="font-size:20px;margin-bottom:6px">📈</div>
             <div style="font-size:11px;font-weight:600;color:var(--ink)">Sales Analysis</div>
@@ -3911,6 +3911,16 @@ function renderInsights(cc, c, allRecs) {
             <div style="font-size:10px;color:var(--muted);margin-top:2px">Specific action items</div>
           </div>
         </div>
+      </div>
+      <div style="border-top:1px solid var(--border);padding-top:14px;margin-top:4px">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:8px;letter-spacing:.04em;text-transform:uppercase">💬 Ask a question about this data</div>
+        <div style="display:flex;gap:8px">
+          <input id="insightQuestion" type="text" placeholder="e.g. Why are inbound fees so high in February? What's driving the TACOS increase?" 
+            style="flex:1;padding:9px 12px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit;color:var(--ink)"
+            onkeydown="if(event.key==='Enter')askInsightQuestion()">
+          <button class="btn btn-primary" onclick="askInsightQuestion()" style="white-space:nowrap">Ask Claude</button>
+        </div>
+        <div id="questionOutput" style="margin-top:12px"></div>
       </div>
     </div>
   </div>`;
@@ -3962,7 +3972,34 @@ async function generateInsights() {
   if (btn) { btn.disabled=false; btn.textContent='Generate Insights'; }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
+async function askInsightQuestion() {
+  const input = document.getElementById('insightQuestion');
+  const out = document.getElementById('questionOutput');
+  const question = input?.value?.trim();
+  if (!question) return;
+
+  out.innerHTML = `<div style="padding:12px;color:var(--muted);font-size:13px">⏳ Asking Claude…</div>`;
+
+  try {
+    const prompt = `You are an Amazon seller analytics expert. A user is asking a question about this seller data:
+
+${window._insightData}
+
+User question: "${question}"
+
+Answer the question directly and concisely in 2-4 sentences. Be specific with numbers from the data where relevant. Plain text only, no markdown.`;
+
+    const text = await callClaude(prompt, 500);
+    out.innerHTML = `
+      <div style="background:var(--accent-lt);border:1px solid var(--accent-b);border-radius:8px;padding:14px 16px">
+        <div style="font-size:10px;font-weight:700;color:var(--accent);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Claude's Answer</div>
+        <div style="font-size:13px;color:var(--ink);line-height:1.6">${text}</div>
+      </div>`;
+    input.value = '';
+  } catch(e) {
+    out.innerHTML = `<div style="padding:12px;color:var(--red);font-size:13px">Error: ${e.message}</div>`;
+  }
+}
 // SELF-DEBUG SYSTEM
 // ═══════════════════════════════════════════════════════════════════════════════
 function openDebugPanel() {
@@ -4829,9 +4866,14 @@ async function callClaude(prompt, maxTokens=2000) {
     headers:{'Content-Type':'application/json','Authorization':`Bearer ${_userToken||SB_KEY}`},
     body: JSON.stringify({model:'claude-sonnet-4-20250514', max_tokens:maxTokens, messages:[{role:'user',content:prompt}]})
   });
+  if (!res.ok) throw new Error(`API error ${res.status}`);
   const data = await res.json();
-  const text = data.content?.[0]?.text || '';
-  if (!text) throw new Error('Empty response from AI');
+  // Handle both direct response and proxied response formats
+  const text = data.content?.[0]?.text || data.text || data.message || '';
+  if (!text) {
+    console.error('Claude response:', JSON.stringify(data).slice(0,200));
+    throw new Error('Empty response from AI — ' + (data.error?.message || JSON.stringify(data).slice(0,100)));
+  }
   return text;
 }
 
