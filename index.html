@@ -652,40 +652,22 @@ const SB_URL = 'https://edhweiwwgvikipghhnvm.supabase.co';
 const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ';
 
 async function sbUpsert(rows) {
-  const doFetch = async (token) => {
-    return fetch(`${SB_URL}/rest/v1/records`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': SB_KEY,
-        'Authorization': `Bearer ${token}`,
-        'Prefer': 'resolution=merge-duplicates,return=minimal'
-      },
-      body: JSON.stringify(rows)
-    });
-  };
-
-  let token = _userToken || SB_KEY;
-  let res = await doFetch(token);
-
-  // If 401, try to refresh the session
+  const token = _userToken || SB_KEY;
+  const res = await fetch(`${SB_URL}/rest/v1/records`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SB_KEY,
+      'Authorization': `Bearer ${token}`,
+      'Prefer': 'resolution=merge-duplicates,return=minimal'
+    },
+    body: JSON.stringify(rows)
+  });
   if (res.status === 401) {
-    try {
-      const {data} = await Promise.race([
-        _SB.auth.refreshSession(),
-        new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')),5000))
-      ]);
-      if (data?.session?.access_token) {
-        _userToken = data.session.access_token;
-        token = _userToken;
-        res = await doFetch(token);
-      }
-    } catch(e) {
-      // If refresh fails, sign out user
-      console.warn('Token refresh failed:', e.message);
-    }
+    const ind = document.getElementById('saveIndicator');
+    if (ind) { ind.textContent = '⚠️ Session expired — please log out and log back in'; ind.style.color='var(--red)'; }
+    throw new Error('Session expired');
   }
-
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
   return true;
 }
@@ -738,6 +720,7 @@ async function flushSaveQueue() {
       if (ind) ind.textContent = `⏳ Saving… ${saved}/${batch.length}`;
     } catch(e) {
       console.error('Save error:', e.message);
+      if (e.message === 'Session expired') return; // Don't retry on auth failure
       _saveQueue.push(...chunk);
     }
     if (i + CHUNK < batch.length) await new Promise(r => setTimeout(r, 200));
