@@ -1893,6 +1893,21 @@ function buildProdOptions(prodR, sel) {
 
 function renderProducts(cc, c, prodR) {
   if (!prodR.length) { cc.innerHTML=emptyPanel('No product data','Upload a Business Report CSV for '+c.display); return; }
+  
+  // Check if viewing all markets
+  const markets = [...new Set(prodR.map(r=>r.market))];
+  if (markets.length > 1) {
+    cc.innerHTML = `<div style="padding:32px;text-align:center;max-width:480px;margin:0 auto">
+      <div style="font-size:40px;margin-bottom:12px">🌍</div>
+      <div style="font-size:16px;font-weight:700;color:var(--ink);margin-bottom:8px">Select a marketplace to view product data</div>
+      <div style="font-size:13px;color:var(--muted);line-height:1.6;margin-bottom:20px">Product metrics like sessions, conversion rate, and Buy Box % are marketplace-specific and can't be combined across markets. Select a single marketplace from the filter above to see your product performance.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center">
+        ${markets.map(m=>`<button class="btn btn-sm" onclick="setMarket('${m}')" style="font-weight:600">${m}</button>`).join('')}
+      </div>
+    </div>`;
+    return;
+  }
+
   const sorted=[...prodR].filter(r=>!r.isAgg && !r.period.includes('2025')).sort((a,b)=>periodSort(a.period,b.period));
   const sel=sorted[sorted.length-1];
   A.prodOpen=new Set();
@@ -1941,7 +1956,10 @@ function buildProdView(cc, c, prodR, sel) {
     `<tr class="row-total"><td></td><td>${d.parents.length} parents / ${d.parents.reduce((s,p)=>s+p.skus,0)} SKUs</td><td>—</td><td>${fn(TU)}</td><td>${fn(TB2B)}</td><td>${f$(TSA)}</td><td>${fn(TSE)}</td><td>—</td><td>—</td><td>100%</td></tr>`;
   }
 
-  window.toggleProd=pid=>{if(A.prodOpen.has(pid))A.prodOpen.delete(pid);else A.prodOpen.add(pid); document.getElementById('prodBody').innerHTML=buildRows();};
+  window.setMarket = function(mkt) {
+  const fm = document.getElementById('filterMarket');
+  if (fm) { fm.value = mkt; applyFilters(); }
+};
   window.changeProdPeriod = function(id) {
   if (id.startsWith('agg_')) {
     const QMAP = {Jan:'Q1',Feb:'Q1',Mar:'Q1',Apr:'Q2',May:'Q2',Jun:'Q2',Jul:'Q3',Aug:'Q3',Sep:'Q3',Oct:'Q4',Nov:'Q4',Dec:'Q4'};
@@ -3142,12 +3160,204 @@ function renderAnnualMarketBreakdown() {
 
 function exportPDF() {
   const c = S.clients.find(x => x.id === A.activeClientId);
-  const clientName = c ? c.display : 'Amazon Analytics';
-  const clientLegal = c ? c.legal : '';
-  const market = document.getElementById('filterMarket').value || 'All';
-  const period = document.getElementById('filterPeriod').value || 'All';
-  const dashHTML = document.getElementById('clientContent').innerHTML;
+  if (!c) return;
+  const allRecs = S.records.filter(r => r.clientId === c.id);
+  const periods = [...new Set(allRecs.map(r=>r.period).filter(p=>p&&p.includes('2026')))].sort(periodSort);
+  const markets = c.markets || [];
+
+  const existing = document.getElementById('pdfExportModal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'pdfExportModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:2000;display:flex;align-items:center;justify-content:center';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;padding:28px;width:460px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 60px rgba(0,0,0,.25)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <div style="font-size:16px;font-weight:700;color:var(--ink)">📄 Export Client Report</div>
+        <button onclick="document.getElementById('pdfExportModal').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted)">✕</button>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px">Generate a structured PDF report for ${c.display}.</div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:6px">MARKETPLACE</label>
+        <select id="pdfMkt" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          ${markets.map(m=>`<option value="${m}">${m}</option>`).join('')}
+        </select>
+      </div>
+      <div style="margin-bottom:14px">
+        <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:6px">PERIOD TYPE</label>
+        <div style="display:flex;gap:8px">
+          <button id="pdfTypeMon" class="btn btn-primary btn-sm" onclick="setPdfType('monthly')" style="flex:1">Monthly</button>
+          <button id="pdfTypeQtr" class="btn btn-sm" onclick="setPdfType('quarterly')" style="flex:1">Quarterly</button>
+        </div>
+      </div>
+      <div id="pdfMonthSel" style="margin-bottom:14px">
+        <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:6px">MONTH</label>
+        <select id="pdfPeriod" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          ${periods.map(p=>`<option value="${p}">${p}</option>`).join('')}
+        </select>
+      </div>
+      <div id="pdfQtrSel" style="margin-bottom:14px;display:none">
+        <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:6px">QUARTER</label>
+        <select id="pdfQtr" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          <option value="Q1">Q1 2026 (Jan–Mar)</option>
+          <option value="Q2">Q2 2026 (Apr–Jun)</option>
+        </select>
+      </div>
+      <div style="margin-bottom:20px">
+        <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:6px">OPTIONS</label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;margin-bottom:8px">
+          <input type="checkbox" id="pdfIncludeYoY" checked> Include Year-over-Year comparison
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+          <input type="checkbox" id="pdfIncludeInsights" checked> Include AI Key Insights
+        </label>
+      </div>
+      <button class="btn btn-primary" onclick="generateClientPDF()" style="width:100%;padding:10px">⬇ Generate PDF</button>
+      <div id="pdfStatus" style="margin-top:10px;font-size:12px;color:var(--muted);text-align:center"></div>
+    </div>`;
+  document.body.appendChild(modal);
+  window._pdfType = 'monthly';
+}
+
+window.setPdfType = function(type) {
+  window._pdfType = type;
+  document.getElementById('pdfMonthSel').style.display = type==='monthly'?'':'none';
+  document.getElementById('pdfQtrSel').style.display = type==='quarterly'?'':'none';
+  document.getElementById('pdfTypeMon').className = type==='monthly'?'btn btn-primary btn-sm':'btn btn-sm';
+  document.getElementById('pdfTypeQtr').className = type==='quarterly'?'btn btn-primary btn-sm':'btn btn-sm';
+};
+
+window.generateClientPDF = async function() {
+  const c = S.clients.find(x => x.id === A.activeClientId);
+  if (!c) return;
+  const status = document.getElementById('pdfStatus');
+  const mkt = document.getElementById('pdfMkt').value;
+  const includeYoY = document.getElementById('pdfIncludeYoY').checked;
+  const includeInsights = document.getElementById('pdfIncludeInsights').checked;
+
+  let periods, label;
+  if (window._pdfType === 'quarterly') {
+    const qtr = document.getElementById('pdfQtr').value;
+    const QMAP = {Q1:['Jan 2026','Feb 2026','Mar 2026'],Q2:['Apr 2026','May 2026','Jun 2026']};
+    periods = QMAP[qtr]; label = `${qtr} 2026`;
+  } else {
+    periods = [document.getElementById('pdfPeriod').value];
+    label = periods[0];
+  }
+
+  status.textContent = '⏳ Gathering data…';
+  const allRecs = S.records.filter(r=>r.clientId===c.id&&r.market===mkt);
+  const txnRecs = allRecs.filter(r=>r.type==='transaction_csv'&&periods.includes(r.period));
+  const bizRecs = allRecs.filter(r=>r.type==='business_csv'&&r.data?.snapshot&&periods.includes(r.period));
+  const advRecs = allRecs.filter(r=>r.type==='advertising_csv'&&periods.includes(r.period));
+  const econRecs = allRecs.filter(r=>r.type==='economics_csv'&&periods.includes(r.period));
+  const toUSD2 = v => toUSD(v, mkt);
+
+  const agg = {
+    fba_sales:    txnRecs.reduce((s,r)=>s+toUSD2(r.data.fba_sales||0),0),
+    income:       txnRecs.reduce((s,r)=>s+toUSD2(r.data.income||0),0),
+    expenses:     txnRecs.reduce((s,r)=>s+toUSD2(r.data.expenses||0),0),
+    selling_fees: txnRecs.reduce((s,r)=>s+toUSD2(r.data.selling_fees||0),0),
+    tx_fees:      txnRecs.reduce((s,r)=>s+toUSD2(r.data.tx_fees||0),0),
+    inbound:      txnRecs.reduce((s,r)=>s+toUSD2(r.data.inbound||0),0),
+    refunds:      txnRecs.reduce((s,r)=>s+toUSD2(r.data.refunds||0),0),
+    inv_credit:   txnRecs.reduce((s,r)=>s+toUSD2(r.data.inv_credit||0),0),
+    vine:         txnRecs.reduce((s,r)=>s+toUSD2(r.data.vine||0),0),
+    service_fees: txnRecs.reduce((s,r)=>s+toUSD2(r.data.service_fees||0),0),
+    bank:         txnRecs.reduce((s,r)=>s+toUSD2(r.data.bank||0),0),
+    charges:      txnRecs.reduce((s,r)=>s+toUSD2(r.data.charges||0),0),
+  };
+  agg.adv = advRecs.length
+    ? advRecs.reduce((s,r)=>s+Math.abs(r.data.adv||0),0)
+    : econRecs.length
+      ? econRecs.reduce((s,r)=>s+toUSD2(Math.abs(r.data.adv||0)),0)
+      : txnRecs.reduce((s,r)=>s+toUSD2(Math.abs(r.data.adv||0)),0);
+
+  const orderedSales = bizRecs.reduce((s,r)=>s+toUSD2(r.data.snapshot.sales||0),0);
+  const orderedUnits = bizRecs.reduce((s,r)=>s+(r.data.snapshot.units||0),0);
+  const sales25 = bizRecs.reduce((s,r)=>s+(r.data.yoy?.sales_25||0),0);
+  const units25 = bizRecs.reduce((s,r)=>s+(r.data.yoy?.units_25||0),0);
+  const salesYoY = sales25 ? ((orderedSales-sales25)/sales25*100).toFixed(1) : null;
+  const unitsYoY = units25 ? ((orderedUnits-units25)/units25*100).toFixed(1) : null;
+  const tacos = orderedSales ? (agg.adv/orderedSales*100).toFixed(1) : '—';
+
+  const f$ = v => '$'+Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const arrow = v => parseFloat(v) >= 0 ? '▲' : '▼';
+  const yoyBadge = v => v ? `<span style="color:${parseFloat(v)>=0?'#059669':'#DC2626'};font-weight:700">${arrow(v)} ${Math.abs(v)}%</span>` : '—';
+
+  let insights = '';
+  if (includeInsights) {
+    status.textContent = '⏳ Generating AI insights…';
+    try {
+      const prompt = `You are an Amazon seller analytics expert writing a client report for ${c.display}, ${mkt} marketplace, ${label}.
+Data: Ordered Sales ${f$(orderedSales)}, FBA Sales ${f$(agg.fba_sales)}, Income ${f$(agg.income)}, Expenses ${f$(agg.expenses)}, Ad Spend ${f$(agg.adv)} TACOS ${tacos}%, Selling Fees ${f$(agg.selling_fees)}, Transaction Fees ${f$(agg.tx_fees)}, Inbound/Storage ${f$(agg.inbound)}, Refunds ${f$(agg.refunds)}${salesYoY?', Sales YoY '+salesYoY+'%':''}${unitsYoY?', Units YoY '+unitsYoY+'%':''}.
+Write 4-5 concise bullet point insights. Each has a bold label and 1-2 sentences. Be specific with numbers.
+Return JSON array: [{"label":"Label","text":"insight text"},...] — ONLY JSON.`;
+      const text = await callClaude(prompt, 800);
+      const arr = JSON.parse(text.replace(/```json|```/g,'').trim());
+      insights = arr.map(i=>`<tr><td style="font-weight:700;color:#4F46E5;white-space:nowrap;vertical-align:top;padding-right:12px;padding-bottom:8px">${i.label}</td><td style="color:#374151;line-height:1.6;padding-bottom:8px">${i.text}</td></tr>`).join('');
+    } catch(e) { insights = ''; }
+  }
+
+  let monthlyRows = '';
+  if (periods.length > 1) {
+    monthlyRows = periods.map(p => {
+      const pt = allRecs.filter(r=>r.type==='transaction_csv'&&r.period===p);
+      const pb = allRecs.filter(r=>r.type==='business_csv'&&r.data?.snapshot&&r.period===p);
+      const pa = allRecs.filter(r=>r.type==='advertising_csv'&&r.period===p);
+      const sales = pb.reduce((s,r)=>s+toUSD2(r.data.snapshot.sales||0),0);
+      const income = pt.reduce((s,r)=>s+toUSD2(r.data.income||0),0);
+      const expenses = pt.reduce((s,r)=>s+toUSD2(r.data.expenses||0),0);
+      const adv = pa.length ? pa.reduce((s,r)=>s+Math.abs(r.data.adv||0),0) : pt.reduce((s,r)=>s+toUSD2(Math.abs(r.data.adv||0)),0);
+      const tc = sales ? (adv/sales*100).toFixed(1) : '—';
+      return `<tr><td style="font-weight:600">${p}</td><td style="text-align:right">${f$(sales)}</td><td style="text-align:right">${f$(income)}</td><td style="text-align:right;color:#DC2626">-${f$(Math.abs(expenses))}</td><td style="text-align:right;color:#DC2626">-${f$(adv)}</td><td style="text-align:right">${tc}%</td></tr>`;
+    }).join('');
+  }
+
+  status.textContent = '⏳ Building PDF…';
   const dateStr = new Date().toLocaleDateString('en-US',{year:'numeric',month:'long',day:'numeric'});
+
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${c.display} ${label} Report</title>
+<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Segoe UI',system-ui,sans-serif;font-size:12px;color:#111827;background:#fff;padding:32px;max-width:800px;margin:0 auto}.header{display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:14px;border-bottom:3px solid #4F46E5;margin-bottom:20px}.header-left .brand{font-size:11px;color:#6B7280;font-weight:600;letter-spacing:.06em;text-transform:uppercase;margin-bottom:4px}.header-left .title{font-size:22px;font-weight:800;color:#1E1B4B}.header-left .subtitle{font-size:12px;color:#6B7280;margin-top:2px}.header-right{text-align:right;font-size:10px;color:#9CA3AF;line-height:1.6}.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:20px}.kpi{border:1px solid #E5E7EB;border-radius:8px;padding:12px;border-top:3px solid #4F46E5}.kpi.green{border-top-color:#059669}.kpi.red{border-top-color:#DC2626}.kpi.amber{border-top-color:#D97706}.kpi.violet{border-top-color:#7C3AED}.kpi-label{font-size:8px;font-weight:700;color:#9CA3AF;letter-spacing:.08em;text-transform:uppercase;margin-bottom:4px}.kpi-value{font-size:15px;font-weight:800;color:#1E1B4B}.kpi-sub{font-size:9px;color:#9CA3AF;margin-top:2px}.section{margin-bottom:18px}.section-title{font-size:9px;font-weight:700;color:#6B7280;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #E5E7EB}table{width:100%;border-collapse:collapse;font-size:11px}th{padding:6px 10px;text-align:left;font-size:8px;font-weight:700;color:#6B7280;letter-spacing:.06em;text-transform:uppercase;background:#F9FAFB;border-bottom:2px solid #4F46E5}td{padding:7px 10px;border-bottom:1px solid #F3F4F6}.row-section td{background:#4F46E5;color:#fff;font-weight:700;font-size:10px}.text-right{text-align:right}.text-muted{color:#9CA3AF}.footer{margin-top:24px;padding-top:10px;border-top:1px solid #E5E7EB;font-size:9px;color:#9CA3AF;text-align:center}@media print{body{padding:16px}}</style>
+</head><body>
+<div class="header"><div class="header-left"><div class="brand">${c.legal||c.display} · Amazon Seller Central</div><div class="title">${label}</div><div class="subtitle">${mkt} Marketplace</div></div><div class="header-right">Generated: ${dateStr}<br>Marketix Analytics Platform<br>All amounts in USD</div></div>
+<div class="kpis">
+  <div class="kpi green"><div class="kpi-label">Ordered Sales</div><div class="kpi-value">${f$(orderedSales)}</div><div class="kpi-sub">From Sales Dashboard</div></div>
+  <div class="kpi"><div class="kpi-label">FBA Sales</div><div class="kpi-value">${f$(agg.fba_sales)}</div><div class="kpi-sub">Gross product sales</div></div>
+  <div class="kpi red"><div class="kpi-label">Total Expenses</div><div class="kpi-value">-${f$(Math.abs(agg.expenses))}</div><div class="kpi-sub">All Amazon fees</div></div>
+  <div class="kpi amber"><div class="kpi-label">Ad Spend</div><div class="kpi-value">-${f$(agg.adv)}</div><div class="kpi-sub">TACOS: ${tacos}%</div></div>
+  ${salesYoY?`<div class="kpi violet"><div class="kpi-label">Sales YoY</div><div class="kpi-value" style="color:${parseFloat(salesYoY)>=0?'#059669':'#DC2626'}">${arrow(salesYoY)} ${Math.abs(salesYoY)}%</div><div class="kpi-sub">Units: ${unitsYoY?arrow(unitsYoY)+' '+Math.abs(unitsYoY)+'%':'—'}</div></div>`:''}
+</div>
+<div class="section"><div class="section-title">Income &amp; Expenses</div><table>
+  <tr class="row-section"><td colspan="2">INCOME</td><td class="text-right">${f$(agg.income)}</td></tr>
+  <tr><td colspan="2" class="text-muted">FBA Product Sales</td><td class="text-right">${f$(agg.fba_sales)}</td></tr>
+  ${agg.refunds?`<tr><td colspan="2" class="text-muted">FBA Product Sale Refunds</td><td class="text-right" style="color:#DC2626">-${f$(Math.abs(agg.refunds))}</td></tr>`:''}
+  ${agg.inv_credit?`<tr><td colspan="2" class="text-muted">FBA Inventory Credit</td><td class="text-right">${f$(agg.inv_credit)}</td></tr>`:''}
+  ${agg.vine?`<tr><td colspan="2" class="text-muted">Promotional Rebates (Vine)</td><td class="text-right" style="color:#DC2626">-${f$(Math.abs(agg.vine))}</td></tr>`:''}
+  <tr class="row-section"><td colspan="2">EXPENSES</td><td class="text-right">-${f$(Math.abs(agg.expenses))}</td></tr>
+  ${agg.selling_fees?`<tr><td colspan="2" class="text-muted">FBA Selling Fees</td><td class="text-right" style="color:#DC2626">-${f$(Math.abs(agg.selling_fees))}</td></tr>`:''}
+  ${agg.tx_fees?`<tr><td colspan="2" class="text-muted">FBA Transaction Fees</td><td class="text-right" style="color:#DC2626">-${f$(Math.abs(agg.tx_fees))}</td></tr>`:''}
+  ${agg.inbound?`<tr><td colspan="2" class="text-muted">FBA Inbound / Storage Fees</td><td class="text-right" style="color:#DC2626">-${f$(Math.abs(agg.inbound))}</td></tr>`:''}
+  ${agg.adv?`<tr><td colspan="2" class="text-muted">Cost of Advertising</td><td class="text-right" style="color:#DC2626">-${f$(agg.adv)}</td></tr>`:''}
+  <tr class="row-section"><td colspan="2">CASH FLOW &amp; TRANSFERS</td><td></td></tr>
+  ${agg.bank?`<tr><td colspan="2" class="text-muted">Transfers to Bank Account</td><td class="text-right">${f$(agg.bank)}</td></tr>`:''}
+  ${agg.charges?`<tr><td colspan="2" class="text-muted">Charges / Debt Recovery</td><td class="text-right" style="color:#DC2626">-${f$(Math.abs(agg.charges))}</td></tr>`:''}
+</table></div>
+${includeYoY&&salesYoY?`<div class="section"><div class="section-title">Year-over-Year Comparison</div><table><thead><tr><th>Metric</th><th class="text-right">2025</th><th class="text-right">2026</th><th class="text-right">YoY Change</th></tr></thead><tbody><tr><td>Ordered Product Sales</td><td class="text-right">${f$(sales25)}</td><td class="text-right">${f$(orderedSales)}</td><td class="text-right">${yoyBadge(salesYoY)}</td></tr><tr><td>Units Ordered</td><td class="text-right">${units25.toLocaleString()}</td><td class="text-right">${orderedUnits.toLocaleString()}</td><td class="text-right">${yoyBadge(unitsYoY)}</td></tr></tbody></table></div>`:''}
+${periods.length>1?`<div class="section"><div class="section-title">Monthly Breakdown — ${label}</div><table><thead><tr><th>Month</th><th class="text-right">Ordered Sales</th><th class="text-right">Income</th><th class="text-right">Expenses</th><th class="text-right">Ad Spend</th><th class="text-right">TACOS</th></tr></thead><tbody>${monthlyRows}</tbody></table></div>`:''}
+${insights?`<div class="section"><div class="section-title">Key Insights</div><table><tbody>${insights}</tbody></table></div>`:''}
+<div class="footer">${c.display} · ${c.legal||''} · Amazon Seller Central · All amounts in USD · Not accounting, tax or legal advice.</div>
+</body></html>`;
+
+  const blob = new Blob([html], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if (!win) { alert('Pop-up blocked. Please allow pop-ups and try again.'); return; }
+  setTimeout(() => { win.print(); URL.revokeObjectURL(url); }, 800);
+  status.textContent = '✓ PDF ready — use Print dialog → Save as PDF';
+  setTimeout(() => { const m = document.getElementById('pdfExportModal'); if(m) m.remove(); }, 3000);
+};
 
   const css = [
     '*{box-sizing:border-box;margin:0;padding:0}',
@@ -3177,34 +3387,10 @@ function exportPDF() {
     '.type-badge{padding:1px 6px;border-radius:10px;font-size:9px;font-weight:600}',
     '.type-csv{background:#D1FAE5;color:#065F46}.type-pdf{background:#EDE9FE;color:#7C3AED}',
     '.asin-tag{font-size:9px;font-family:monospace;background:#EEF2FF;border:1px solid #C7D2FE;border-radius:3px;padding:0 4px;color:#4F46E5}',
-    '.sku-tag{font-size:9px;font-family:monospace;color:#9CA3AF}',
-    '.text-clip{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}',
-    '.expand-btn,.sub-nav,.btn{display:none!important}',
-    '.yoy-up{color:#059669;font-weight:700}.yoy-down{color:#DC2626;font-weight:700}',
-    '.text-pos{color:#059669;font-weight:600}.text-neg{color:#DC2626;font-weight:600}',
-    '.text-muted{color:#6B7280}.mini-bar-bg,.mini-bar-fill{display:none}',
-    '@media print{body{padding:10px}.panel{break-inside:avoid}.row-2{break-inside:avoid}}'
-  ].join(' ');
 
-  const printWin = window.open('', '_blank', 'width=1100,height=850');
-  if (!printWin) { alert('Pop-up blocked. Please allow pop-ups for this page and try again.'); return; }
 
-  const parts = [];
-  parts.push('<!DOCTYPE html><html><head><meta charset="UTF-8">');
-  parts.push('<title>' + clientName + ' Report</title>');
-  parts.push('<style>' + css + '</style>');
-  parts.push('</head><body>');
-  parts.push('<div class="print-header">');
-  parts.push('<div><div class="ph-title">' + clientName + '</div><div class="ph-sub">' + clientLegal + '</div></div>');
-  parts.push('<div class="ph-meta">Generated: ' + dateStr + '<br>Market: ' + market + ' | Period: ' + period + '</div>');
-  parts.push('</div>');
-  parts.push(dashHTML);
-  parts.push('</body></html>');
 
-  printWin.document.write(parts.join(''));
-  printWin.document.close();
-  setTimeout(function(){ printWin.print(); }, 600);
-}
+
 
 
 
@@ -3768,18 +3954,13 @@ async function generateInsights() {
   out.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">🤖 Claude is analyzing your data…<br><span style="font-size:11px">This takes 10-15 seconds</span></div>';
 
   try {
-    const res = await fetch('https://edhweiwwgvikipghhnvm.supabase.co/functions/v1/claude-proxy', {
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ'},
-      body: JSON.stringify({
-        model:'claude-sonnet-4-20250514', max_tokens:2000,
-        messages:[{role:'user',content:`You are an Amazon seller analytics expert. Analyze this data and provide a structured business review.\n\n${window._insightData}\n\nProvide analysis in this exact JSON format:\n{"rating":"X/10","headline":"one sentence summary","highlights":["point1","point2","point3"],"concerns":["concern1","concern2"],"products":"product health summary","advertising":"advertising efficiency summary","recommendations":["rec1","rec2","rec3","rec4"],"outlook":"forward looking statement"}\n\nReturn ONLY the JSON, no markdown.`}]
-      })
-    });
-    const data = await res.json();
-    const text = data.content?.[0]?.text || '';
+    const text = await callClaude(`You are an Amazon seller analytics expert. Analyze this data and provide a structured business review.\n\n${window._insightData}\n\nProvide analysis in this exact JSON format:\n{"rating":"X/10","headline":"one sentence summary","highlights":["point1","point2","point3"],"concerns":["concern1","concern2"],"products":"product health summary","advertising":"advertising efficiency summary","recommendations":["rec1","rec2","rec3","rec4"],"outlook":"forward looking statement"}\n\nReturn ONLY the JSON, no markdown, no backticks.`, 2000);
     let parsed;
-    try { parsed = JSON.parse(text.replace(/```json|```/g,'')); } catch(e) { throw new Error('Parse failed: '+text.slice(0,100)); }
+    try {
+      parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
+    } catch(e) {
+      throw new Error('Could not parse AI response. Try again.');
+    }
 
     const insightBox = (title,content,color='var(--accent-lt)',border='var(--accent-b)',textColor='var(--accent)') =>
       `<div style="background:${color};border:1px solid ${border};border-radius:10px;padding:14px 16px;margin-bottom:10px">
@@ -4062,13 +4243,7 @@ async function runSelfDebug(questionOnly=false) {
       ? `You are debugging the Marketix Amazon Analytics Platform. The user has a specific question:\n\n"${question}"\n\nHere is the full diagnostic data to help answer it:\n${JSON.stringify(diagnostics, null, 2)}\n\nKNOWN RULES:\n- Ad spend (adv) in transaction_csv should be NEGATIVE\n- Ad spend (adv) in economics_csv should be POSITIVE\n- Ad spend (adv) in summary_pdf should be NEGATIVE and non-zero\n- Bank transfers should be POSITIVE\n- Income POSITIVE, Expenses NEGATIVE\n\nAnswer the question directly and clearly. Return a JSON response:\n{"summary":"direct answer to the question","clientIssues":[{"client":"name","severity":"high|medium|low","issue":"description","fix":"what to do"}],"dataGaps":[],"suspiciousValues":[],"overallHealth":"healthy|needs_attention|critical"}\n\nReturn ONLY JSON.`
       : `You are debugging the Marketix Amazon Analytics Platform. Analyze this diagnostic data and identify all data issues, missing records, and suspicious values across all clients.\n\nDIAGNOSTIC DATA:\n${JSON.stringify(diagnostics, null, 2)}\n\nKNOWN RULES:\n- Ad spend (adv) in transaction_csv should be NEGATIVE\n- Ad spend (adv) in economics_csv should be POSITIVE\n- Ad spend (adv) in summary_pdf should be NEGATIVE and non-zero (if zero, parser failed)\n- Each client should have matching periods across business_csv and transaction_csv\n- Bank transfers should be POSITIVE\n- Income POSITIVE, Expenses NEGATIVE\n\nReturn a JSON response:\n{"summary":"one line overall health summary","clientIssues":[{"client":"name","severity":"high|medium|low","issue":"description","fix":"what to do"}],"dataGaps":["description"],"suspiciousValues":["description"],"overallHealth":"healthy|needs_attention|critical"}\n\nReturn ONLY JSON.`;
 
-    const res = await fetch('https://edhweiwwgvikipghhnvm.supabase.co/functions/v1/claude-proxy', {
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVkaHdlaXd3Z3Zpa2lwZ2hobnZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NDA0OTIsImV4cCI6MjA5MzAxNjQ5Mn0.i9GtQE-AyWzFL2XPhDyuCUJo_kgx4SCd2FWEluiTelQ'},
-      body: JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3000,messages:[{role:'user',content:prompt}]})
-    });
-    const data = await res.json();
-    const text = data.content?.[0]?.text||'';
+    const text = await callClaude(prompt, 3000);
     if (!text) throw new Error('Empty response from API');
     
     let parsed;
@@ -4667,7 +4842,24 @@ function parseEconomicsCSV(text) {
 }
 
 
-// ── AI INSIGHTS ───────────────────────────────────────────────────────────────
+// Helper to get Anthropic API key via edge function
+async function getAnthropicKey() {
+  // Use the claude-proxy edge function as a pass-through
+  // The key is stored in the edge function environment
+  return 'via-proxy'; // Signals to use edge function below
+}
+
+async function callClaude(prompt, maxTokens=2000) {
+  const res = await fetch('https://edhweiwwgvikipghhnvm.supabase.co/functions/v1/claude-proxy', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':`Bearer ${_userToken||SB_KEY}`},
+    body: JSON.stringify({model:'claude-sonnet-4-20250514', max_tokens:maxTokens, messages:[{role:'user',content:prompt}]})
+  });
+  const data = await res.json();
+  const text = data.content?.[0]?.text || '';
+  if (!text) throw new Error('Empty response from AI');
+  return text;
+}S ───────────────────────────────────────────────────────────────
 
 loadState();
 seedDemo();
