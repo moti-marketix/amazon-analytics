@@ -4833,7 +4833,9 @@ async function callClaude(prompt, maxTokens=2000) {
   const text = data.content?.[0]?.text || '';
   if (!text) throw new Error('Empty response from AI');
   return text;
-}S ───────────────────────────────────────────────────────────────
+}
+
+// ── TABLE SORT UTILITY ────────────────────────────────────────────────────────
 
 loadState();
 seedDemo();
