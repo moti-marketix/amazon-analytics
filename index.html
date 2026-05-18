@@ -1004,7 +1004,7 @@ function processUpload() {
         else if(cur==='GBP'&&s.GBP>0) spendUSD = d.spend * s.GBP;
         else if(cur==='EUR'&&s.EUR>0) spendUSD = d.spend * s.EUR;
         const record = {
-          id: 'r'+Date.now()+Math.random().toString(36).slice(2,5),
+          id: `adv_${clientId}_${d.market}_${d.month}_${yr}`.replace(/\s+/g,'_'),
           clientId, market: d.market, period: d.month+' '+yr,
           type: 'advertising_csv', filename: file.name,
           data: {adv: Math.round(spendUSD*100)/100, adv_local: d.spend, currency: d.currency, clicks: d.clicks, impressions: d.impressions},
