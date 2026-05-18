@@ -4864,16 +4864,12 @@ async function callClaude(prompt, maxTokens=2000) {
   const res = await fetch('https://edhweiwwgvikipghhnvm.supabase.co/functions/v1/claude-proxy', {
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':`Bearer ${_userToken||SB_KEY}`},
-    body: JSON.stringify({model:'claude-sonnet-4-20250514', max_tokens:maxTokens, messages:[{role:'user',content:prompt}]})
+    body: JSON.stringify({prompt, max_tokens:maxTokens})
   });
   if (!res.ok) throw new Error(`API error ${res.status}`);
   const data = await res.json();
-  // Handle both direct response and proxied response formats
-  const text = data.content?.[0]?.text || data.text || data.message || '';
-  if (!text) {
-    console.error('Claude response:', JSON.stringify(data).slice(0,200));
-    throw new Error('Empty response from AI — ' + (data.error?.message || JSON.stringify(data).slice(0,100)));
-  }
+  const text = data.content?.[0]?.text || '';
+  if (!text) throw new Error('Empty response from AI — ' + JSON.stringify(data).slice(0,100));
   return text;
 }
 
