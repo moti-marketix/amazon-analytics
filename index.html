@@ -3359,34 +3359,8 @@ ${insights?`<div class="section"><div class="section-title">Key Insights</div><t
   setTimeout(() => { const m = document.getElementById('pdfExportModal'); if(m) m.remove(); }, 3000);
 };
 
-  const css = [
-    '*{box-sizing:border-box;margin:0;padding:0}',
-    'body{font-family:Segoe UI,system-ui,sans-serif;font-size:12px;color:#1E1B4B;background:#fff;padding:20px}',
-    '.print-header{display:flex;justify-content:space-between;padding-bottom:12px;border-bottom:3px solid #4F46E5;margin-bottom:16px}',
-    '.ph-title{font-size:20px;font-weight:700}.ph-sub{font-size:11px;color:#6B7280;margin-top:2px}',
-    '.ph-meta{text-align:right;font-size:10px;color:#6B7280}',
-    '.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}',
-    '.kpi-card{border:1px solid #E5E7F5;border-radius:8px;padding:12px;border-top:3px solid #E5E7F5}',
-    '.kpi-card.blue{border-top-color:#4F46E5}.kpi-card.green{border-top-color:#059669}',
-    '.kpi-card.amber{border-top-color:#D97706}.kpi-card.red{border-top-color:#DC2626}.kpi-card.violet{border-top-color:#7C3AED}',
-    '.kpi-label{font-size:8px;font-weight:700;color:#6B7280;letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px}',
-    '.kpi-value{font-size:17px;font-weight:700}.kpi-sub{font-size:10px;color:#6B7280;margin-top:2px}',
-    '.panel{border:1px solid #E5E7F5;border-radius:8px;margin-bottom:12px;overflow:hidden;break-inside:avoid}',
-    '.panel-header{padding:10px 14px 0}.panel-title{font-size:9px;font-weight:700;color:#6B7280;letter-spacing:.07em;text-transform:uppercase}',
-    '.panel-body{padding:12px 14px}.chart-container{padding:0 14px 14px;height:190px;position:relative}',
-    '.row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}',
-    'table{width:100%;border-collapse:collapse;font-size:10px}',
-    'th{padding:5px 8px;text-align:left;font-size:8px;font-weight:700;color:#6B7280;letter-spacing:.06em;text-transform:uppercase;border-bottom:2px solid #4F46E5;background:#F8F9FF}',
-    'td{padding:5px 8px;border-bottom:1px solid #F8F9FF}',
-    '.row-total td{font-weight:700;background:#EEF2FF;border-top:2px solid #4F46E5}',
-    '.row-section td{background:#4F46E5;color:#fff;font-weight:700}',
-    '.row-child td{background:#F4F6FF;font-size:9px}.row-child td:first-child{padding-left:18px}',
-    '.chip{display:inline-block;padding:1px 6px;border-radius:10px;font-size:9px;font-weight:700}',
-    '.chip-blue{background:#EEF2FF;color:#4F46E5}.chip-green{background:#D1FAE5;color:#065F46}',
-    '.chip-amber{background:#FEF3C7;color:#92400E}.chip-red{background:#FEE2E2;color:#991B1B}.chip-violet{background:#EDE9FE;color:#7C3AED}',
-    '.type-badge{padding:1px 6px;border-radius:10px;font-size:9px;font-weight:600}',
-    '.type-csv{background:#D1FAE5;color:#065F46}.type-pdf{background:#EDE9FE;color:#7C3AED}',
-    '.asin-tag{font-size:9px;font-family:monospace;background:#EEF2FF;border:1px solid #C7D2FE;border-radius:3px;padding:0 4px;color:#4F46E5}',
+
+// ── TABLE SORT UTILITY ────────────────────────────────────────────────────────
 
 
 
