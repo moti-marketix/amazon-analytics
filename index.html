@@ -3938,7 +3938,22 @@ async function generateInsights() {
   out.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">🤖 Claude is analyzing your data…<br><span style="font-size:11px">This takes 10-15 seconds</span></div>';
 
   try {
-    const text = await callClaude(`You are an Amazon seller analytics expert. Analyze this data and provide a structured business review.\n\n${window._insightData}\n\nProvide analysis in this exact JSON format:\n{"rating":"X/10","headline":"one sentence summary","highlights":["point1","point2","point3"],"concerns":["concern1","concern2"],"products":"product health summary","advertising":"advertising efficiency summary","recommendations":["rec1","rec2","rec3","rec4"],"outlook":"forward looking statement"}\n\nReturn ONLY the JSON, no markdown, no backticks.`, 2000);
+    const text = await callClaude(`You are an Amazon seller analytics expert writing a client-facing business review. The seller is managed by a professional Amazon agency (Marketix). Write in a positive, professional tone that builds client confidence while identifying growth opportunities.
+
+Data:
+${window._insightData}
+
+Important guidelines:
+- Do NOT include any rating, score, or grade
+- Frame any issues as "opportunities" or "areas to optimize" — never as failures or problems
+- Credit positive results to good strategy and execution
+- Recommendations should be forward-looking and actionable
+- Write as if the agency is presenting to the client
+
+Provide analysis in this exact JSON format:
+{"headline":"one upbeat sentence summarizing performance","highlights":["achievement1","achievement2","achievement3"],"opportunities":["opportunity1","opportunity2"],"products":"product health summary in positive framing","advertising":"advertising efficiency summary","recommendations":["specific action item 1","specific action item 2","specific action item 3","specific action item 4"],"outlook":"confident forward-looking statement"}
+
+Return ONLY the JSON, no markdown, no backticks.`, 2000);
     let parsed;
     try {
       parsed = JSON.parse(text.replace(/```json|```/g,'').trim());
@@ -3953,15 +3968,14 @@ async function generateInsights() {
       </div>`;
 
     out.innerHTML = `
-      <div style="display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;margin-bottom:14px">
-        <div style="font-size:32px;font-weight:800;color:var(--accent)">${parsed.rating}</div>
-        <div style="font-size:14px;font-weight:600;color:var(--ink)">${parsed.headline}</div>
+      <div style="background:linear-gradient(135deg,#EEF2FF,#F5F3FF);border:1px solid #C7D2FE;border-radius:10px;padding:16px 18px;margin-bottom:14px">
+        <div style="font-size:14px;font-weight:700;color:#1E1B4B;line-height:1.5">${parsed.headline}</div>
       </div>
-      ${insightBox('✅ Highlights', parsed.highlights.map(h=>`• ${h}`).join('<br>'), 'var(--green-lt)','#6ee7b7','var(--green-dk)')}
-      ${insightBox('⚠️ Concerns', parsed.concerns.map(c=>`• ${c}`).join('<br>'), 'var(--amber-lt)','#fcd34d','var(--amber-dk)')}
-      ${insightBox('📦 Product Health', parsed.products)}
+      ${insightBox('✅ Key Wins', parsed.highlights.map(h=>`• ${h}`).join('<br>'), 'var(--green-lt)','#6ee7b7','var(--green-dk)')}
+      ${insightBox('🎯 Growth Opportunities', (parsed.opportunities||parsed.concerns||[]).map(c=>`• ${c}`).join('<br>'), 'var(--amber-lt)','#fcd34d','var(--amber-dk)')}
+      ${insightBox('📦 Product Performance', parsed.products)}
       ${insightBox('📣 Advertising', parsed.advertising)}
-      ${insightBox('💡 Recommendations', parsed.recommendations.map((r,i)=>`<strong>${i+1}.</strong> ${r}`).join('<br>'), 'var(--violet-lt)','#c4b5fd','#5b21b6')}
+      ${insightBox('💡 Recommended Next Steps', parsed.recommendations.map((r,i)=>`<strong>${i+1}.</strong> ${r}`).join('<br>'), 'var(--violet-lt)','#c4b5fd','#5b21b6')}
       ${insightBox('🔭 Outlook', parsed.outlook, 'var(--stripe)','var(--border)','var(--muted)')}
       <div style="text-align:right;margin-top:8px">
         <button class="btn" onclick="generateInsights()" style="font-size:11px">↺ Regenerate</button>
