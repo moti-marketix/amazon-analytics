@@ -4682,33 +4682,65 @@ async function saveUser() {
       if (error) throw error;
       msg.style.color='#34d399'; msg.textContent='✓ User updated successfully.';
     } else {
-      // Create user: signUp + restore admin session + update profile
-      console.log('Creating user via signUp...');
-      const { data: sessionData } = await _SB.auth.getSession();
-      const adminSession = sessionData?.session;
+      // Create user via Admin REST API — does NOT touch our session
+      const adminToken = _userToken || SB_KEY;
 
-      const { data: signUpData, error: signUpErr } = await _SB.auth.signUp({
-        email, password: pw, options: { data: { name } }
+      const createRes = await fetch(`${SB_URL}/auth/v1/admin/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SB_KEY,
+          'Authorization': `Bearer ${adminToken}`
+        },
+        body: JSON.stringify({
+          email,
+          password: pw,
+          email_confirm: true,
+          user_metadata: { name }
+        })
       });
-      if (signUpErr) throw new Error(signUpErr.message);
-      const newUserId = signUpData?.user?.id;
-      if (!newUserId) throw new Error('User creation failed — no ID returned');
-      console.log('User created:', newUserId);
 
-      // Restore admin session so we stay logged in
-      if (adminSession) {
-        await _SB.auth.setSession({
-          access_token: adminSession.access_token,
-          refresh_token: adminSession.refresh_token
+      const createData = await createRes.json();
+      if (!createRes.ok) throw new Error(createData.message || createData.msg || 'Failed to create user');
+      const newUserId = createData.id;
+      if (!newUserId) throw new Error('User creation failed — no ID returned');
+
+      // Wait briefly for DB trigger to create the profile row
+      await new Promise(r => setTimeout(r, 1200));
+
+      // Update profile via REST (admin token — no session change)
+      const profileRes = await fetch(`${SB_URL}/rest/v1/profiles?id=eq.${newUserId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': SB_KEY,
+          'Authorization': `Bearer ${adminToken}`,
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({
+          name, email, role,
+          client_id: clientIds[0] || null,
+          client_ids: clientIds
+        })
+      });
+
+      if (!profileRes.ok) {
+        // Profile row may not exist yet — try INSERT
+        await fetch(`${SB_URL}/rest/v1/profiles`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': SB_KEY,
+            'Authorization': `Bearer ${adminToken}`,
+            'Prefer': 'resolution=merge-duplicates,return=minimal'
+          },
+          body: JSON.stringify({
+            id: newUserId, name, email, role,
+            client_id: clientIds[0] || null,
+            client_ids: clientIds
+          })
         });
       }
-
-      // Update profile with role and client assignment
-      await _SB.from('profiles').update({
-        name, role,
-        client_id: clientIds[0] || null,
-        client_ids: clientIds
-      }).eq('id', newUserId);
 
       msg.style.color='#34d399'; msg.textContent='✓ User created — ' + email + ' / ' + pw;
     }
