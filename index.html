@@ -2200,7 +2200,7 @@ function renderFinancials(cc, c, summR, allRecs=[]) {
     const totAdv2=sorted.reduce((s,r)=>s+Math.abs(r.data.adv||0),0);
     const totOrdSales=sorted.reduce((s,r)=>s+(r.data.fba_sales||0),0);
     const totTc=totOrdSales?totAdv2/totOrdSales*100:0;
-    const tcell=v=>{const col=v<15?'var(--green)':v<25?'var(--amber)':'var(--red)';return `<td style="text-align:right;color:${col};font-weight:700">${v.toFixed(1)}%</td>`;};
+    const tcell=v=>`<td style="text-align:right;font-weight:700">${v.toFixed(1)}%</td>`;
     return `<tr><td style="font-weight:600">TACOS</td>${vals.map(tcell).join('')}${tcell(totTc)}</tr>`;
   };
 
@@ -2968,7 +2968,7 @@ function renderAnnual(cc, c, allRecs) {
     const advAmt=Math.abs(fin.adv||0);
     const tacosDenom=s26||0;
     const tacos=tacosDenom&&advAmt?(advAmt/tacosDenom*100).toFixed(1)+'%':'—';
-    const tc=parseFloat(tacos)>20?'var(--red)':parseFloat(tacos)>10?'var(--amber)':'var(--green)';
+    const tc='var(--ink)';
     trows+=`<tr>
       <td><strong>${m} 2026</strong></td>
       <td style="text-align:right;color:var(--muted)">${s25?f$(s25):'—'}</td>
@@ -3547,10 +3547,10 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
       <div class="kpi-sub">TACOS: ${avgTacos.toFixed(1)}%</div>
     </div>`:''}
     ${txn26.length?`
-    <div class="kpi-card" style="border-top-color:${tacosColor}">
+    <div class="kpi-card">
       <div class="kpi-label">TACOS <span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ad Spend ÷ Ordered Sales. Under 12% healthy, 12-20% watch, over 20% high.</span></span></div>
-      <div class="kpi-value" style="color:${tacosColor}">${avgTacos.toFixed(1)}%</div>
-      <div class="kpi-sub">${tacosLabel}</div>
+      <div class="kpi-value">${avgTacos.toFixed(1)}%</div>
+      <div class="kpi-sub"> </div>
     </div>`:''}
     ${latGrowth!==null?`
     <div class="kpi-card ${latGrowth>=0?'green':'red'}">
@@ -3619,7 +3619,7 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
             <td style="text-align:right">${sg!==null?yoyCell(sg):'—'}</td>
             <td style="text-align:right">${ug!==null?yoyCell(ug):'—'}</td>
             ${hasAdv?`<td style="text-align:right;color:var(--red)">${fs$(advVal)}</td>
-              <td style="text-align:right;font-weight:600;color:${tcColor}">${tc!==null?tc.toFixed(1)+'%':'—'}</td>`:'<td>—</td><td>—</td>'}
+              <td style="text-align:right;font-weight:600">${tc!==null?tc.toFixed(1)+'%':'—'}</td>`:'<td>—</td><td>—</td>'}
           </tr>`;
         }).join('')}
         <tr class="row-total">
@@ -3628,7 +3628,7 @@ function renderSummary(cc, c, allRecs, bizR, prodR, summR, recs) {
           <td style="text-align:right">${fn(totUnits)}</td>
           <td style="text-align:right">${salesGrowth!==null?yoyCell(salesGrowth):'—'}</td>
           <td style="text-align:right">${unitsGrowth!==null?yoyCell(unitsGrowth):'—'}</td>
-          ${(econ26.length||txn26.length)?`<td style="text-align:right;color:var(--red)">${fs$(totAdv)}</td><td style="text-align:right;font-weight:600;color:${tacosColor}">${avgTacos.toFixed(1)}%</td>`:''}
+          ${(econ26.length||txn26.length)?`<td style="text-align:right;color:var(--red)">${fs$(totAdv)}</td><td style="text-align:right;font-weight:600;">${avgTacos.toFixed(1)}%</td>`:''}
         </tr>
       </tbody>
     </table></div>
@@ -3713,10 +3713,10 @@ function renderAdvertising(cc, c, allRecs) {
       <div class="kpi-value">${f$(totFba)}</div>
       <div class="kpi-sub">Revenue base for TACOS</div>
     </div>
-    <div class="kpi-card" style="border-top-color:${tacosColor(avgTacos)}">
+    <div class="kpi-card">
       <div class="kpi-label">TACOS (avg) <span class="tip-wrap"><i class="tip-btn">!</i><span class="tip-pop">Ad Spend ÷ Ordered Sales (from Sales Dashboard CSV)</span></span></div>
-      <div class="kpi-value" style="color:${tacosColor(avgTacos)}">${avgTacos.toFixed(2)}%</div>
-      <div class="kpi-sub">${tacosLabel(avgTacos)}</div>
+      <div class="kpi-value">${avgTacos.toFixed(2)}%</div>
+      <div class="kpi-sub"> </div>
     </div>
     <div class="kpi-card blue">
       <div class="kpi-label">Ad Spend / Month</div>
@@ -3754,7 +3754,7 @@ function renderAdvertising(cc, c, allRecs) {
             <td><strong>${r.period}</strong></td>
             <td style="text-align:right;font-weight:600;color:var(--green)">${f$(r.fba)}</td>
             <td style="text-align:right;color:var(--red);font-weight:600">${f$(-r.adv)}</td>
-            <td style="text-align:right;font-weight:700;color:${tcC}">${r.tacos.toFixed(2)}%</td>
+            <td style="text-align:right;font-weight:700">${r.tacos.toFixed(2)}%</td>
             <td style="text-align:right">${r.income?f$(r.income):'—'}</td>
             <td style="text-align:right;color:var(--muted)">${r.expenses?f$(r.expenses):'—'}</td>
           </tr>`;
@@ -3763,7 +3763,7 @@ function renderAdvertising(cc, c, allRecs) {
           <td>Total / Avg</td>
           <td style="text-align:right">${f$(totFba)}</td>
           <td style="text-align:right;color:var(--red)">${f$(-totAdv)}</td>
-          <td style="text-align:right;font-weight:700;color:${tacosColor(avgTacos)}">${avgTacos.toFixed(2)}%</td>
+          <td style="text-align:right;font-weight:700">${avgTacos.toFixed(2)}%</td>
           <td style="text-align:right">${totInc?f$(totInc):'—'}</td>
           <td style="text-align:right">${totExp?f$(totExp):'—'}</td>
         </tr>
