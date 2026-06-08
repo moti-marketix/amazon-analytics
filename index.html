@@ -1939,8 +1939,10 @@ function buildProdView(cc, c, prodR, sel) {
       const usp=ausp(p), bw=Math.round(p.units/mx*44);
       let h=`<tr class="row-parent${isO?' open':''}" onclick="toggleProd('${p.parent}')">
         <td><span class="expand-btn">${isO?'−':'+'}</span></td>
-        <td><div class="text-clip" title="${p.title}">${p.title}</div>
-            <span class="asin-tag">${p.parent}</span> <span style="font-size:10px;color:var(--faint)">${p.skus} SKUs</span></td>
+        <td style="display:flex;align-items:center;gap:8px">
+            <img src="https://images-na.ssl-images-amazon.com/images/P/${p.parent}.01.LZZZZZZZ.jpg" onerror="this.style.display='none'" style="width:36px;height:36px;object-fit:contain;border-radius:4px;border:1px solid var(--border);flex-shrink:0;background:#fff">
+            <div><div class="text-clip" title="${p.title}">${p.title}</div>
+            <span class="asin-tag">${p.parent}</span> <span style="font-size:10px;color:var(--faint)">${p.skus} SKUs</span></div></td>
         <td class="text-muted">${p.skus}</td>
         <td><span class="mini-bar-bg"><span class="mini-bar-fill" style="width:${bw}px"></span></span>${fn(p.units)}</td>
         <td>${fn(b2b)} <span class="text-muted">(${TU?(b2b/p.units*100).toFixed(0):0}%)</span></td>
@@ -1951,8 +1953,10 @@ function buildProdView(cc, c, prodR, sel) {
       </tr>`;
       if (isO) p.children.forEach(ch=>{h+=`<tr class="row-child">
         <td></td>
-        <td><div class="text-clip" title="${ch.title}">${ch.title}</div>
-            <span class="asin-tag">${ch.child}</span> <span class="sku-tag">${ch.sku}</span></td>
+        <td style="display:flex;align-items:center;gap:8px">
+            <img src="https://images-na.ssl-images-amazon.com/images/P/${ch.child}.01.LZZZZZZZ.jpg" onerror="this.style.display='none'" style="width:28px;height:28px;object-fit:contain;border-radius:4px;border:1px solid var(--border);flex-shrink:0;background:#fff">
+            <div><div class="text-clip" title="${ch.title}">${ch.title}</div>
+            <span class="asin-tag">${ch.child}</span> <span class="sku-tag">${ch.sku}</span></div></td>
         <td class="text-muted">—</td><td>${fn(ch.units)}</td><td>${fn(ch.units_b2b)}</td>
         <td>${f$(ch.sales)}</td><td class="text-muted">${fn(ch.sessions)}</td>
         <td><span class="chip ${chipC(ch.usp)}">${ch.usp.toFixed(1)}%</span></td>
@@ -2038,8 +2042,10 @@ function buildProdView(cc, c, prodR, sel) {
     const rows = allChildren.map(ch => {
       const bw = Math.round(ch.units/mx2*44);
       return `<tr>
-        <td><div class="text-clip" title="${ch.title}">${ch.title}</div>
-            <span class="asin-tag">${ch.child}</span> <span class="sku-tag">${ch.sku}</span></td>
+        <td style="display:flex;align-items:center;gap:8px">
+            <img src="https://images-na.ssl-images-amazon.com/images/P/${ch.child}.01.LZZZZZZZ.jpg" onerror="this.style.display='none'" style="width:28px;height:28px;object-fit:contain;border-radius:4px;border:1px solid var(--border);flex-shrink:0;background:#fff">
+            <div><div class="text-clip" title="${ch.title}">${ch.title}</div>
+            <span class="asin-tag">${ch.child}</span> <span class="sku-tag">${ch.sku}</span></div></td>
         <td class="text-muted text-clip" title="${ch.parentTitle}" style="max-width:140px">${ch.parentTitle}</td>
         <td><span class="mini-bar-bg"><span class="mini-bar-fill" style="width:${bw}px"></span></span>${fn(ch.units)}</td>
         <td>${fn(ch.units_b2b)}</td>
@@ -2724,9 +2730,11 @@ function renderProductYoY(cc, c, recs) {
                    : isDrop? '<span class="chip chip-red"   style="font-size:9px;margin-left:5px">DROPPED</span>' : '';
       html += `<tr class="row-parent${isO?' open':''}" onclick="toggleYoy('${p.parent}')">
         <td><span class="expand-btn">${isO?'−':'+'}</span></td>
-        <td><div class="text-clip" title="${p.title}">${p.title}${badge}</div>
+        <td style="display:flex;align-items:center;gap:8px">
+            <img src="https://images-na.ssl-images-amazon.com/images/P/${p.parent}.01.LZZZZZZZ.jpg" onerror="this.style.display='none'" style="width:36px;height:36px;object-fit:contain;border-radius:4px;border:1px solid var(--border);flex-shrink:0;background:#fff">
+            <div><div class="text-clip" title="${p.title}">${p.title}${badge}</div>
             <span class="asin-tag">${p.parent}</span>
-            <span style="font-size:10px;color:var(--faint);margin-left:4px">${p.skus.length} SKUs</span></td>
+            <span style="font-size:10px;color:var(--faint);margin-left:4px">${p.skus.length} SKUs</span></div></td>
         <td style="text-align:right;color:var(--muted)">${p.units25||'—'}</td>
         <td style="text-align:right;font-weight:600">${p.units26||'—'}</td>
         <td style="text-align:right">${chg(p.units26,p.units25)}</td>
