@@ -1339,16 +1339,25 @@ function parseProductCSV(text) {
   const uspCol = hdrs.findIndex(h=>h==='unit session percentage'&&!h.includes('b2b'));
   const bbCol  = hdrs.findIndex(h=>h.includes('buy box')&&!h.includes('b2b'));
   const parentMap = {};
+  const seenSkus = new Set(); // global dedup across all rows
   for (const raw of lines.slice(1)) {
     const c = csvLine(raw.replace(/^\uFEFF/,''));
-    const pid = (pCol>=0?c[pCol]:c[0]||'').trim();
+    const pid   = (pCol>=0?c[pCol]:c[0]||'').trim();
+    const child = (cCol>=0?c[cCol]:'').trim();
+    const sku   = (skuCol>=0?c[skuCol]:'').trim();
     if (!pid) continue;
+    // Skip rows where parent ASIN = child ASIN (Amazon sometimes lists parent as its own child)
+    if (pid && child && pid === child) continue;
+    // Skip duplicate SKUs (same product listed twice)
+    const skuKey = sku || child;
+    if (skuKey && seenSkus.has(skuKey)) continue;
+    if (skuKey) seenSkus.add(skuKey);
     if (!parentMap[pid]) parentMap[pid] = { parent:pid, title:(titCol>=0?c[titCol]:pid).slice(0,60), units:0, sales:0, sessions:0, children:[] };
     const u  = uCol>=0  ? int0(c[uCol])  : 0;
     const s  = sCol>=0  ? money(c[sCol]) : 0;
     const se = seCol>=0 ? int0(c[seCol]) : 0;
     parentMap[pid].units+=u; parentMap[pid].sales+=s; parentMap[pid].sessions+=se;
-    parentMap[pid].children.push({ child:(cCol>=0?c[cCol]:'').trim(), sku:(skuCol>=0?c[skuCol]:'').trim(), title:(titCol>=0?c[titCol]:'').slice(0,65), units:u, units_b2b:ub2Col>=0?int0(c[ub2Col]):0, sales:s, sessions:se, page_views:pvCol>=0?int0(c[pvCol]):0, usp:uspCol>=0?pct0(c[uspCol]):0, buy_box:bbCol>=0?pct0(c[bbCol]):0 });
+    parentMap[pid].children.push({ child, sku, title:(titCol>=0?c[titCol]:'').slice(0,65), units:u, units_b2b:ub2Col>=0?int0(c[ub2Col]):0, sales:s, sessions:se, page_views:pvCol>=0?int0(c[pvCol]):0, usp:uspCol>=0?pct0(c[uspCol]):0, buy_box:bbCol>=0?pct0(c[bbCol]):0 });
   }
   const parents = Object.values(parentMap).map(p=>({...p,skus:p.children.length})).sort((a,b)=>b.units-a.units);
   return { parents, total_units:parents.reduce((s,p)=>s+p.units,0), total_sales:parents.reduce((s,p)=>s+p.sales,0), total_sessions:parents.reduce((s,p)=>s+p.sessions,0) };
@@ -1685,8 +1694,11 @@ function renderOverview(cc, c, recs, bizR, prodR) {
   const periods = [...new Set(bizR.map(r=>r.period))].sort(periodSort);
   const byPeriod = periods.map(p => {
     const rows = bizR.filter(r=>r.period===p);
+    const prodRows = prodR.filter(r=>r.period===p);
     const sales   = rows.reduce((s,r)=>s+toUSD(r.data.snapshot?.sales||0,r.market),0);
-    const units   = rows.reduce((s,r)=>s+(r.data.snapshot?.units||0),0);
+    // Units from Business Report CSV (product_csv) — single source of truth
+    const units   = prodRows.reduce((s,r)=>s+(r.data.total_units||0),0) ||
+                    rows.reduce((s,r)=>s+(r.data.snapshot?.units||0),0); // fallback if no product CSV
     const sales25 = rows.reduce((s,r)=>s+toUSD(r.data.yoy?.sales_25||0,r.market),0);
     const units25 = rows.reduce((s,r)=>s+(r.data.yoy?.units_25||0),0);
     const salesYoY = sales25 ? ((sales-sales25)/sales25*100) : null;
@@ -1697,8 +1709,7 @@ function renderOverview(cc, c, recs, bizR, prodR) {
   cc.innerHTML = `
   <div class="kpi-grid">
     <div class="kpi-card green"><div class="kpi-label">Ordered Sales</div><div class="kpi-value">${f$(totS)}</div><div class="kpi-sub">${periods.length} period(s)</div></div>
-    <div class="kpi-card blue"><div class="kpi-label">Units Ordered</div><div class="kpi-value">${fn(totU)}</div><div class="kpi-sub">Sales CSV</div></div>
-    <div class="kpi-card orange"><div class="kpi-label">Product Units</div><div class="kpi-value">${fn(totPU)}</div><div class="kpi-sub">Business report CSV</div></div>
+    <div class="kpi-card blue"><div class="kpi-label">Units Sold</div><div class="kpi-value">${fn(totPU)}</div><div class="kpi-sub">Business Report CSV</div></div>
     <div class="kpi-card purple"><div class="kpi-label">Markets</div><div class="kpi-value" style="font-size:13px;line-height:1.4">${mkts||marketFilter}</div><div class="kpi-sub">${periods.length} period(s) loaded</div></div>
     <div class="kpi-card"><div class="kpi-label">Records</div><div class="kpi-value">${recs.length}</div><div class="kpi-sub">${[...new Set(recs.map(r=>r.type))].length} report type(s)</div></div>
   </div>
