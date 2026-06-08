@@ -1671,12 +1671,14 @@ function renderSubView(c, recs, bizR, prodR, summR, allRecs) {
   }
   // For YoY tabs: keep 2025 records always (needed for comparison), filter 2026 by period
   const allRecsFiltered = allRecs.filter(r => r.period.includes('2025') || periodMatchAll(r.period, period));
+  // Product YoY uses ALL records (both years, all periods) — its own internal selector controls the view
+  const allProdRecs = allRecs;
   if (A.subNav==='summary')    renderSummary(cc, c, allRecsFiltered, bizR, prodR, summR, recs);
   else if (A.subNav==='overview')   renderOverview(cc, c, recs, bizR, prodR);
   else if (A.subNav==='annual') renderAnnual(cc, c, allRecsFiltered);
   else if (A.subNav==='sales') renderSales(cc, c, bizR);
   else if (A.subNav==='products') renderProducts(cc, c, prodR);
-  else if (A.subNav==='prod-yoy') renderProductYoY(cc, c, allRecsFiltered);
+  else if (A.subNav==='prod-yoy') renderProductYoY(cc, c, allProdRecs);
   else if (A.subNav==='advertising') renderAdvertising(cc, c, allRecsFiltered);
   else if (A.subNav==='financials') renderFinancials(cc, c, summR, allRecsFiltered);
   else if (A.subNav==='insights')  renderInsights(cc, c, allRecsFiltered);
@@ -1687,7 +1689,7 @@ function renderOverview(cc, c, recs, bizR, prodR) {
   const marketFilter = document.getElementById('filterMarket')?.value || 'all';
   const totS  = bizR.reduce((s,r)=>s+toUSD(r.data.snapshot?.sales||0,r.market),0);
   const totU  = bizR.reduce((s,r)=>s+(r.data.snapshot?.units||0),0);
-  const totPU = prodR.reduce((s,r)=>s+(r.data.total_units||0),0);
+  const totPU = prodR.reduce((s,r)=>s+(r.data.parents||[]).reduce((a,p)=>a+(p.units||0),0),0);
   const mkts  = [...new Set(bizR.map(r=>r.market))].sort().join(', ');
 
   // Aggregate by period across markets
@@ -1696,8 +1698,8 @@ function renderOverview(cc, c, recs, bizR, prodR) {
     const rows = bizR.filter(r=>r.period===p);
     const prodRows = prodR.filter(r=>r.period===p);
     const sales   = rows.reduce((s,r)=>s+toUSD(r.data.snapshot?.sales||0,r.market),0);
-    // Units from Business Report CSV (product_csv) — single source of truth
-    const units   = prodRows.reduce((s,r)=>s+(r.data.total_units||0),0) ||
+    // Units from Business Report CSV (product_csv) — computed from parents array
+    const units   = prodRows.reduce((s,r)=>s+(r.data.parents||[]).reduce((a,p)=>a+(p.units||0),0),0) ||
                     rows.reduce((s,r)=>s+(r.data.snapshot?.units||0),0); // fallback if no product CSV
     const sales25 = rows.reduce((s,r)=>s+toUSD(r.data.yoy?.sales_25||0,r.market),0);
     const units25 = rows.reduce((s,r)=>s+(r.data.yoy?.units_25||0),0);
@@ -1927,7 +1929,9 @@ function renderProducts(cc, c, prodR) {
 
 function buildProdView(cc, c, prodR, sel) {
   const d=sel.data;
-  const TU=d.total_units||0, TSA=d.total_sales||0, TSE=d.total_sessions||0;
+  const TU  = (d.parents||[]).reduce((s,p)=>s+(p.units||0),0);
+  const TSA = (d.parents||[]).reduce((s,p)=>s+(p.sales||0),0);
+  const TSE = (d.parents||[]).reduce((s,p)=>s+(p.sessions||0),0);
   const TB2B=d.parents.reduce((s,p)=>s+p.children.reduce((a,ch)=>a+ch.units_b2b,0),0);
   const mx=Math.max(...d.parents.map(p=>p.units),1);
   const chipC=v=>v>=15?'chip-green':v>=5?'chip-amber':'chip-red';
@@ -2603,8 +2607,10 @@ function seedDemo() {
 // ── INIT ──────────────────────────────────────────────────────
 
 function renderProductYoY(cc, c, recs) {
-  const prod25 = recs.filter(r=>r.type==='product_csv'&&r.period.includes('2025')&&r.data&&r.data.parents);
-  const prod26 = recs.filter(r=>r.type==='product_csv'&&r.period.includes('2026')&&r.data&&r.data.parents);
+  const mktFilter = document.getElementById('filterMarket')?.value || 'all';
+  const filteredRecs = mktFilter === 'all' ? recs : recs.filter(r=>r.market===mktFilter);
+  const prod25 = filteredRecs.filter(r=>r.type==='product_csv'&&r.period.includes('2025')&&r.data&&r.data.parents);
+  const prod26 = filteredRecs.filter(r=>r.type==='product_csv'&&r.period.includes('2026')&&r.data&&r.data.parents);
   if (!prod25.length || !prod26.length) {
     cc.innerHTML = emptyPanel('No YoY product data',
       'Upload Business Report CSVs for both 2025 and 2026 periods with matching months.');
@@ -2649,17 +2655,19 @@ function renderProductYoY(cc, c, recs) {
   // Aggregate: for each SKU sum units/sales/sessions across all periods in the pair
   const aggSkuMap = (skuMap, recs_list, periods) => {
     periods.forEach(period => {
-      const rec = recs_list.find(r=>r.period===period);
-      if (!rec) return;
-      rec.data.parents.forEach(p => {
-        (p.children||[]).forEach(c => {
-          if (!skuMap[c.sku]) skuMap[c.sku] = {...c, units:0, sales:0, sessions:0, parent:p.parent, parentTitle:p.title};
-          skuMap[c.sku].units    += c.units    || 0;
-          skuMap[c.sku].sales    += c.sales    || 0;
-          skuMap[c.sku].sessions += c.sessions || 0;
-          // Keep parent from most recent period
-          skuMap[c.sku].parent = p.parent;
-          skuMap[c.sku].parentTitle = p.title;
+      const periodRecs = recs_list.filter(r=>r.period===period);
+      periodRecs.forEach(rec => {
+        rec.data.parents.forEach(p => {
+          (p.children||[]).forEach(c => {
+            const key = c.child || c.sku;
+            if (!key) return;
+            if (!skuMap[key]) skuMap[key] = {...c, units:0, sales:0, sessions:0, parent:p.parent, parentTitle:p.title};
+            skuMap[key].units    += c.units    || 0;
+            skuMap[key].sales    += c.sales    || 0;
+            skuMap[key].sessions += c.sessions || 0;
+            skuMap[key].parent = p.parent;
+            skuMap[key].parentTitle = p.title;
+          });
         });
       });
     });
@@ -2669,13 +2677,12 @@ function renderProductYoY(cc, c, recs) {
   aggSkuMap(skuAgg25, prod25, pair.p25);
   aggSkuMap(skuAgg26, prod26, pair.p26);
 
-  // Use aggregated SKU maps
   const skuMap25 = skuAgg25, skuMap26 = skuAgg26;
   const skuParent25 = {}, skuParent26 = {};
-  Object.entries(skuMap25).forEach(([sku,c])=>{ skuParent25[sku]={asin:c.parent||'',title:c.parentTitle||sku}; });
-  Object.entries(skuMap26).forEach(([sku,c])=>{ skuParent26[sku]={asin:c.parent||'',title:c.parentTitle||sku}; });
+  Object.entries(skuMap25).forEach(([key,c])=>{ skuParent25[key]={asin:c.parent||'',title:c.parentTitle||key}; });
+  Object.entries(skuMap26).forEach(([key,c])=>{ skuParent26[key]={asin:c.parent||'',title:c.parentTitle||key}; });
 
-  // All unique SKUs from both years
+  // All unique child ASINs from both years
   const allSkus = [...new Set([...Object.keys(skuMap26), ...Object.keys(skuMap25)])];
 
   // Build parent-level view by grouping SKUs under their 2026 parent (fallback to 2025)
