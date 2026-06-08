@@ -1339,18 +1339,12 @@ function parseProductCSV(text) {
   const uspCol = hdrs.findIndex(h=>h==='unit session percentage'&&!h.includes('b2b'));
   const bbCol  = hdrs.findIndex(h=>h.includes('buy box')&&!h.includes('b2b'));
   const parentMap = {};
-  const seenChildren = new Set(); // track child ASINs to prevent double-counting
   for (const raw of lines.slice(1)) {
     const c = csvLine(raw.replace(/^\uFEFF/,''));
     const pid   = (pCol>=0?c[pCol]:c[0]||'').trim();
     const child = (cCol>=0?c[cCol]:'').trim();
     const sku   = (skuCol>=0?c[skuCol]:'').trim();
     if (!pid) continue;
-    // Skip if this child ASIN was already counted under a DIFFERENT parent
-    // (but allow parent=child rows — those are standalone ASINs)
-    const childKey = child || sku;
-    if (childKey && seenChildren.has(childKey) && child !== pid) continue;
-    if (childKey) seenChildren.add(childKey);
     if (!parentMap[pid]) parentMap[pid] = { parent:pid, title:(titCol>=0?c[titCol]:pid).slice(0,60), units:0, sales:0, sessions:0, children:[] };
     const u  = uCol>=0  ? int0(c[uCol])  : 0;
     const s  = sCol>=0  ? money(c[sCol]) : 0;
