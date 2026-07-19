@@ -2601,9 +2601,25 @@ function seedDemo() {
 
 function renderProductYoY(cc, c, recs) {
   const mktFilter = document.getElementById('filterMarket')?.value || 'all';
+  const periodFilter = document.getElementById('filterPeriod')?.value || 'all';
+  
+  // Filter by market
   const filteredRecs = mktFilter === 'all' ? recs : recs.filter(r=>r.market===mktFilter);
+  
+  // For 2026: apply period filter. For 2025: always keep all (needed for comparison)
+  const _QM = {Jan:'Q1',Feb:'Q1',Mar:'Q1',Apr:'Q2',May:'Q2',Jun:'Q2',Jul:'Q3',Aug:'Q3',Sep:'Q3',Oct:'Q4',Nov:'Q4',Dec:'Q4'};
+  function periodMatch26(p) {
+    if (periodFilter === 'all') return true;
+    if (p === periodFilter) return true;
+    const qm = periodFilter.match(/^(Q\d)\s+(\d{4})$/);
+    if (qm) { const [m,yr]=p.split(' '); return yr===qm[2] && _QM[m]===qm[1]; }
+    const ytdm = periodFilter.match(/^YTD\s+(\d{4})$/);
+    if (ytdm) return p.endsWith(ytdm[1]);
+    return false;
+  }
+
   const prod25 = filteredRecs.filter(r=>r.type==='product_csv'&&r.period.includes('2025')&&r.data&&r.data.parents);
-  const prod26 = filteredRecs.filter(r=>r.type==='product_csv'&&r.period.includes('2026')&&r.data&&r.data.parents);
+  const prod26 = filteredRecs.filter(r=>r.type==='product_csv'&&r.period.includes('2026')&&r.data&&r.data.parents&&periodMatch26(r.period));
   if (!prod25.length || !prod26.length) {
     cc.innerHTML = emptyPanel('No YoY product data',
       'Upload Business Report CSVs for both 2025 and 2026 periods with matching months.');
@@ -2876,9 +2892,7 @@ function renderProductYoY(cc, c, recs) {
           <button class="yoy-level-btn" data-level="child" onclick="setYoyLevel('child')"
             style="padding:0 12px;height:26px;font-size:11px;border:none;background:${A.yoyLevel==='child'?'#4F46E5':'#fff'};color:${A.yoyLevel==='child'?'#fff':'#6B7280'};cursor:pointer;font-weight:${A.yoyLevel==='child'?'600':'400'}">SKU Level</button>
         </div>
-        <select onchange="changeYoyPair(this.value)" style="height:26px;font-size:11px;min-width:200px">
-          ${pairs.map(p=>`<option value="${p.key}"${p.key===pair.key?' selected':''}>${p.label}</option>`).join('')}
-        </select>
+
       </div>
     </div>
     <div class="table-wrap" style="padding-top:6px"><table>
