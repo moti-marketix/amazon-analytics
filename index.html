@@ -759,7 +759,6 @@ async function flushSaveQueue() {
 }
 async function cloudLoad() {
   if (!_user) return;
-  // Save any advertising_csv records from localStorage before overwriting
   let localAdvRecs = [];
   try {
     const saved = localStorage.getItem('aap4');
@@ -770,14 +769,31 @@ async function cloudLoad() {
   } catch(e) {}
 
   try {
-    const [{data:cd,error:ce},{data:rd,error:re}] = await Promise.all([
-      _SB.from('clients').select('*'),
-      _SB.from('records').select('*')
-    ]);
-    if (ce || re) throw new Error((ce||re).message);
+    const token = _userToken || SB_KEY;
+    const HEADERS = {'apikey': SB_KEY, 'Authorization': `Bearer ${token}`};
+
+    // Fetch clients
+    const cr = await fetch(`${SB_URL}/rest/v1/clients?select=*`, {headers: HEADERS});
+    const cd = await cr.json();
+
+    // Fetch ALL records with pagination (Supabase default limit is 1000)
+    let allRecords = [], page = 0, pageSize = 1000;
+    while (true) {
+      const from = page * pageSize;
+      const to = (page + 1) * pageSize - 1;
+      const rr = await fetch(`${SB_URL}/rest/v1/records?select=*&limit=${pageSize}&offset=${from}`, {
+        headers: {...HEADERS, 'Range-Unit': 'items', 'Range': `${from}-${to}`, 'Prefer': 'count=none'}
+      });
+      const rd = await rr.json();
+      if (!Array.isArray(rd) || rd.length === 0) break;
+      allRecords = allRecords.concat(rd);
+      if (rd.length < pageSize) break;
+      page++;
+    }
+
     S.clients = (cd||[]).map(c=>({id:c.id,display:c.display,legal:c.legal,color:c.color,markets:c.markets||[]}));
-    S.records = (rd||[]).map(r=>({id:r.id,clientId:r.client_id,market:r.market,period:r.period,type:r.type,filename:r.filename,data:r.data,uploaded:r.uploaded,parsed:r.parsed}));
-    // Merge advertising_csv records from localStorage (not yet in Supabase)
+    S.records = allRecords.map(r=>({id:r.id,clientId:r.client_id,market:r.market,period:r.period,type:r.type,filename:r.filename,data:r.data,uploaded:r.uploaded,parsed:r.parsed}));
+
     localAdvRecs.forEach(lr => {
       const exists = S.records.find(r=>r.clientId===lr.clientId&&r.market===lr.market&&r.period===lr.period&&r.type===lr.type);
       if (!exists) S.records.push(lr);
