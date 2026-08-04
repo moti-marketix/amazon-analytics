@@ -653,9 +653,26 @@ const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 
 async function sbUpsert(rows) {
   const token = _userToken || SB_KEY;
-  // Use individual upserts to avoid conflict issues
   for (const row of rows) {
-    const res = await fetch(`${SB_URL}/rest/v1/records?on_conflict=client_id,market,period,type`, {
+    // First try PATCH (update existing by id)
+    const patchRes = await fetch(`${SB_URL}/rest/v1/records?id=eq.${row.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SB_KEY,
+        'Authorization': `Bearer ${token}`,
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify(row)
+    });
+    if (patchRes.status === 401) {
+      const ind = document.getElementById('saveIndicator');
+      if (ind) { ind.textContent = '⚠️ Session expired — please log out and log back in'; ind.style.color='var(--red)'; }
+      throw new Error('Session expired');
+    }
+    // If PATCH updated 0 rows (record doesn't exist), INSERT instead
+    if (patchRes.ok) continue;
+    const insertRes = await fetch(`${SB_URL}/rest/v1/records`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -665,16 +682,10 @@ async function sbUpsert(rows) {
       },
       body: JSON.stringify(row)
     });
-    if (res.status === 401) {
-      const ind = document.getElementById('saveIndicator');
-      if (ind) { ind.textContent = '⚠️ Session expired — please log out and log back in'; ind.style.color='var(--red)'; }
-      throw new Error('Session expired');
-    }
-    if (!res.ok) {
-      const err = await res.text();
-      // Skip duplicate key errors — record already exists with correct data
-      if (err.includes('23505')) continue;
-      throw new Error(`HTTP ${res.status}: ${err}`);
+    if (!insertRes.ok) {
+      const err = await insertRes.text();
+      if (err.includes('23505')) continue; // already exists, skip
+      throw new Error(`HTTP ${insertRes.status}: ${err}`);
     }
   }
   return true;
