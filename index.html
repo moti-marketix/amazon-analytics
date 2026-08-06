@@ -1691,8 +1691,8 @@ function renderSubView(c, recs, bizR, prodR, summR, allRecs) {
   }
   // For YoY tabs: keep 2025 records always (needed for comparison), filter 2026 by period
   const allRecsFiltered = allRecs.filter(r => r.period.includes('2025') || periodMatchAll(r.period, period));
-  // Product YoY uses ALL records (both years, all periods) — its own internal selector controls the view
-  const allProdRecs = allRecs;
+  // Product YoY: keep ALL 2025 records (for comparison) but filter 2026 by period
+  const allProdRecs = allRecs.filter(r => r.period.includes('2025') || periodMatchAll(r.period, period));
   if (A.subNav==='summary')    renderSummary(cc, c, allRecsFiltered, bizR, prodR, summR, recs);
   else if (A.subNav==='overview')   renderOverview(cc, c, recs, bizR, prodR);
   else if (A.subNav==='annual') renderAnnual(cc, c, allRecsFiltered);
