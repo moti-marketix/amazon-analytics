@@ -769,26 +769,19 @@ async function cloudLoad() {
   } catch(e) {}
 
   try {
-    const token = _userToken || SB_KEY;
-    const HEADERS = {'apikey': SB_KEY, 'Authorization': `Bearer ${token}`};
+    // Use Supabase JS client for clients
+    const {data:cd, error:ce} = await _SB.from('clients').select('*');
+    if (ce) throw new Error(ce.message);
 
-    // Fetch clients
-    const cr = await fetch(`${SB_URL}/rest/v1/clients?select=*`, {headers: HEADERS});
-    const cd = await cr.json();
-
-    // Fetch ALL records with pagination (Supabase default limit is 1000)
-    let allRecords = [], page = 0, pageSize = 1000;
+    // Paginate records using Supabase JS client range()
+    let allRecords = [], from = 0, pageSize = 1000;
     while (true) {
-      const from = page * pageSize;
-      const to = (page + 1) * pageSize - 1;
-      const rr = await fetch(`${SB_URL}/rest/v1/records?select=*&limit=${pageSize}&offset=${from}`, {
-        headers: {...HEADERS, 'Range-Unit': 'items', 'Range': `${from}-${to}`, 'Prefer': 'count=none'}
-      });
-      const rd = await rr.json();
-      if (!Array.isArray(rd) || rd.length === 0) break;
+      const {data:rd, error:re} = await _SB.from('records').select('*').range(from, from + pageSize - 1);
+      if (re) throw new Error(re.message);
+      if (!rd || rd.length === 0) break;
       allRecords = allRecords.concat(rd);
       if (rd.length < pageSize) break;
-      page++;
+      from += pageSize;
     }
 
     S.clients = (cd||[]).map(c=>({id:c.id,display:c.display,legal:c.legal,color:c.color,markets:c.markets||[]}));
