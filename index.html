@@ -1617,19 +1617,22 @@ function renderClientDash() {
   const prod26 = allRecs.filter(r=>r.type==='product_csv'&&r.period.includes('2026')&&r.data&&r.data.parents);
   const hasYoyProd = prod25.length > 0 && prod26.length > 0;
   const subs = [
-    {id:'summary',   label:'📋 Executive Summary'},
-    {id:'overview',  label:'Overview'},
-    {id:'annual',    label:'Annual View'},
-    {id:'sales',     label:`Sales & YoY${!bizR.length?' ⚠':''}` },
-    {id:'products',  label:`Products${!prodR.length?' ⚠':''}`  },
-    {id:'prod-yoy',  label:`Product YoY${!hasYoyProd?' ⚠':''}` },
+    {id:'summary',    label:'📋 Executive Summary'},
+    {id:'salesu',     label:`Sales${!bizR.length?' ⚠':''}`},
+    {id:'productsu',  label:`Products${!prodR.length?' ⚠':''}`},
     {id:'advertising',label:'Advertising'},
-    {id:'financials',label:`Financials${!summR.length?' ⚠':''}`},
-    {id:'insights',  label:'🤖 AI Insights'},
-    {id:'records',   label:'Records'},
+    {id:'financials', label:`Financials${!summR.length?' ⚠':''}`},
+    {id:'insights',   label:'🤖 AI Insights'},
+    {id:'records',    label:'Records'},
+    // old tabs kept temporarily so numbers can be compared — will be removed after verification
+    {id:'overview',   label:'Overview (old)', legacy:true},
+    {id:'annual',     label:'Annual View (old)', legacy:true},
+    {id:'sales',      label:'Sales & YoY (old)', legacy:true},
+    {id:'products',   label:'Products (old)', legacy:true},
+    {id:'prod-yoy',   label:'Product YoY (old)', legacy:true},
   ];
   document.getElementById('clientSubNav').innerHTML = subs.map(s=>
-    `<button class="sub-nav-btn${A.subNav===s.id?' active':''}" onclick="setSubNav('${s.id}')">${s.label}</button>`
+    `<button class="sub-nav-btn${A.subNav===s.id?' active':''}" onclick="setSubNav('${s.id}')"${s.legacy?' style="opacity:.55;border-style:dashed"':''}>${s.label}</button>`
   ).join('');
 
   if (!recs.length) {
@@ -1662,6 +1665,8 @@ function renderSubView(c, recs, bizR, prodR, summR, allRecs) {
   // Product YoY: keep ALL 2025 records (for comparison) but filter 2026 by period
   const allProdRecs = allRecs.filter(r => r.period.includes('2025') || periodMatchAll(r.period, period));
   if (A.subNav==='summary')    renderSummary(cc, c, allRecsFiltered, bizR, prodR, summR, recs);
+  else if (A.subNav==='salesu')     renderSalesUnified(cc, c, allRecs);
+  else if (A.subNav==='productsu')  renderProductsUnified(cc, c, allRecs);
   else if (A.subNav==='overview')   renderOverview(cc, c, recs, bizR, prodR);
   else if (A.subNav==='annual') renderAnnual(cc, c, allRecsFiltered);
   else if (A.subNav==='sales') renderSales(cc, c, bizR);
@@ -1671,6 +1676,328 @@ function renderSubView(c, recs, bizR, prodR, summR, allRecs) {
   else if (A.subNav==='financials') renderFinancials(cc, c, summR, allRecsFiltered);
   else if (A.subNav==='insights')  renderInsights(cc, c, allRecsFiltered);
   else if (A.subNav==='records')   renderRecords(cc, c, allRecsFiltered);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// UNIFIED TABS — Sales (replaces Overview + Annual View + Sales & YoY)
+//                Products (replaces Products + Product YoY)
+// Period comes ONLY from the top bar. 2025 is always compared like-for-like
+// (same market + same month as the 2026 data in view).
+// ═══════════════════════════════════════════════════════════════════════════════
+const _QMG = {Jan:'Q1',Feb:'Q1',Mar:'Q1',Apr:'Q2',May:'Q2',Jun:'Q2',Jul:'Q3',Aug:'Q3',Sep:'Q3',Oct:'Q4',Nov:'Q4',Dec:'Q4'};
+function periodMatchSel(p, sel) {
+  if (!sel || sel==='all') return true;
+  if (p===sel) return true;
+  const qm = sel.match(/^(Q\d)\s+(\d{4})$/);
+  if (qm) { const a=p.split(' '); return a[1]===qm[2] && _QMG[a[0]]===qm[1]; }
+  const ym = sel.match(/^YTD\s+(\d{4})$/);
+  if (ym) return p.endsWith(ym[1]);
+  return false;
+}
+const escH = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function yoyChg(a, b) {
+  if (!b && a>0) return '<span class="yoy-up">NEW</span>';
+  if (!b) return '—';
+  const p = (a-b)/b*100;
+  return p>=0 ? `<span class="yoy-up">▲ ${p.toFixed(1)}%</span>` : `<span class="yoy-down">▼ ${Math.abs(p).toFixed(1)}%</span>`;
+}
+function yoyNum(a, b) { return b ? (a-b)/b*100 : null; }
+
+function renderSalesUnified(cc, c, allRecs) {
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const mktSel = document.getElementById('filterMarket')?.value || 'all';
+  const perSel = document.getElementById('filterPeriod')?.value || 'all';
+  const sym = fxActive() ? '$' : (mktSel!=='all' ? (CURRENCY_SYMBOL[getMarketCurrency(mktSel)]||'$') : '$');
+  const fmt = v => (v<0?'-':'')+sym+Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const biz  = allRecs.filter(r=>r.type==='business_csv'&&r.data&&r.data.snapshot);
+  const prod = allRecs.filter(r=>r.type==='product_csv'&&r.data&&r.data.parents);
+  const biz26 = biz.filter(r=>r.period.endsWith('2026'));
+  if (!biz26.length) { cc.innerHTML = emptyPanel('No sales data','Upload Sales Dashboard CSVs for '+c.display); return; }
+  const unitsOf = r => (r.data.parents||[]).reduce((s,p)=>s+(p.units||0),0);
+  const markets = [...new Set(biz26.map(r=>r.market))].sort();
+
+  // One market + one month. Sales: Sales Dashboard CSV. Units: Business Report CSV (fallback: Sales Dashboard).
+  function calc(mon, market) {
+    const b26 = biz.find(r=>r.period===mon+' 2026'&&r.market===market);
+    const b25 = biz.find(r=>r.period===mon+' 2025'&&r.market===market);
+    const p26 = prod.find(r=>r.period===mon+' 2026'&&r.market===market);
+    const p25 = prod.find(r=>r.period===mon+' 2025'&&r.market===market);
+    const s26 = b26 ? toUSD(b26.data.snapshot.sales||0, market) : 0;
+    let s25 = 0;
+    if (b26 && b26.data.yoy && b26.data.yoy.sales_25) s25 = toUSD(b26.data.yoy.sales_25, market);
+    else if (b25) s25 = toUSD(b25.data.snapshot.sales||0, market);
+    const u26 = p26 ? unitsOf(p26) : (b26 ? (b26.data.snapshot.units||0) : 0);
+    let u25 = 0;
+    if (p25) u25 = unitsOf(p25);
+    else if (b26 && b26.data.yoy && b26.data.yoy.units_25) u25 = b26.data.yoy.units_25;
+    else if (b25) u25 = b25.data.snapshot.units||0;
+    return {s26, s25, u26, u25, has:!!b26};
+  }
+
+  const monthRows = MONTHS.map(mon => {
+    const t = {mon, s26:0, s25:0, u26:0, u25:0, has:false};
+    markets.forEach(m => { const x = calc(mon,m); if (x.has) t.has = true; t.s26+=x.s26; t.s25+=x.s25; t.u26+=x.u26; t.u25+=x.u25; });
+    return t;
+  }).filter(r=>r.has);
+  const rows = monthRows.filter(r=>periodMatchSel(r.mon+' 2026', perSel));
+  if (!rows.length) { cc.innerHTML = emptyPanel('No data for this period','Pick another period in the top bar.'); return; }
+
+  const T = rows.reduce((a,r)=>({s26:a.s26+r.s26,s25:a.s25+r.s25,u26:a.u26+r.u26,u25:a.u25+r.u25}),{s26:0,s25:0,u26:0,u25:0});
+  const sg = yoyNum(T.s26,T.s25), ug = yoyNum(T.u26,T.u25);
+  const kpiYoy = p => p===null ? '—' : `<span class="${p>=0?'yoy-up':'yoy-down'}">${p>=0?'▲':'▼'} ${Math.abs(p).toFixed(1)}% YoY</span>`;
+
+  const tableRows = rows.map(r=>`<tr>
+    <td><strong>${r.mon} 2026</strong></td>
+    <td style="text-align:right;color:var(--muted)">${r.s25?fmt(r.s25):'—'}</td>
+    <td style="text-align:right;font-weight:600;color:var(--green)">${fmt(r.s26)}</td>
+    <td style="text-align:right">${yoyChg(r.s26,r.s25)}</td>
+    <td style="text-align:right;color:var(--muted)">${r.u25?fn(r.u25):'—'}</td>
+    <td style="text-align:right;font-weight:600">${fn(r.u26)}</td>
+    <td style="text-align:right">${yoyChg(r.u26,r.u25)}</td>
+  </tr>`).join('') + `<tr class="row-total">
+    <td>Total</td>
+    <td style="text-align:right">${T.s25?fmt(T.s25):'—'}</td>
+    <td style="text-align:right">${fmt(T.s26)}</td>
+    <td style="text-align:right">${yoyChg(T.s26,T.s25)}</td>
+    <td style="text-align:right">${T.u25?fn(T.u25):'—'}</td>
+    <td style="text-align:right">${fn(T.u26)}</td>
+    <td style="text-align:right">${yoyChg(T.u26,T.u25)}</td>
+  </tr>`;
+
+  // Market breakdown (only when more than one market is in view)
+  let marketPanel = '';
+  if (markets.length > 1) {
+    const mrows = markets.map(m => {
+      let s26=0,s25=0,u26=0,u25=0;
+      rows.forEach(r => { const x = calc(r.mon,m); s26+=x.s26; s25+=x.s25; u26+=x.u26; u25+=x.u25; });
+      return {m,s26,s25,u26,u25};
+    });
+    const mt = mrows.reduce((a,r)=>({s26:a.s26+r.s26,s25:a.s25+r.s25,u26:a.u26+r.u26,u25:a.u25+r.u25}),{s26:0,s25:0,u26:0,u25:0});
+    const mline = r => `<td style="text-align:right;color:var(--muted)">${r.s25?fmt(r.s25):'—'}</td>
+      <td style="text-align:right;font-weight:600">${fmt(r.s26)}</td>
+      <td style="text-align:right">${yoyChg(r.s26,r.s25)}</td>
+      <td style="text-align:right;color:var(--muted)">${r.u25?fn(r.u25):'—'}</td>
+      <td style="text-align:right;font-weight:600">${fn(r.u26)}</td>
+      <td style="text-align:right">${yoyChg(r.u26,r.u25)}</td>`;
+    marketPanel = `<div class="panel"><div class="panel-header"><span class="panel-title">Market breakdown — YoY</span></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Market</th><th style="text-align:right">Sales 2025</th><th style="text-align:right">Sales 2026</th><th style="text-align:right">Sales YoY</th><th style="text-align:right">Units 2025</th><th style="text-align:right">Units 2026</th><th style="text-align:right">Units YoY</th></tr></thead>
+        <tbody>${mrows.map(r=>`<tr><td><span class="chip chip-blue">${r.m}</span></td>${mline(r)}</tr>`).join('')}
+        <tr class="row-total"><td>Total</td>${mline(mt)}</tr></tbody>
+      </table></div></div>`;
+  }
+
+  // Daily chart: only for a single market
+  const latestBiz = mktSel!=='all'
+    ? [...biz26].filter(r=>periodMatchSel(r.period,perSel)&&r.data.daily&&r.data.daily.length).sort((a,b)=>periodSort(a.period,b.period)).pop()
+    : null;
+
+  cc.innerHTML = `
+  <div class="kpi-grid">
+    <div class="kpi-card green"><div class="kpi-label">Ordered Sales</div><div class="kpi-value">${fmt(T.s26)}</div><div class="kpi-sub">${kpiYoy(sg)} · Sales Dashboard CSV</div></div>
+    <div class="kpi-card blue"><div class="kpi-label">Units Sold</div><div class="kpi-value">${fn(T.u26)}</div><div class="kpi-sub">${kpiYoy(ug)} · Business Report CSV</div></div>
+    <div class="kpi-card violet"><div class="kpi-label">Avg Monthly Sales</div><div class="kpi-value">${fmt(T.s26/rows.length)}</div><div class="kpi-sub">${rows.length} month(s) in view</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">Prior Year (same months)</div><div class="kpi-value">${T.s25?fmt(T.s25):'—'}</div><div class="kpi-sub">${T.u25?fn(T.u25)+' units':'no 2025 data'}</div></div>
+  </div>
+  <div class="row-2">
+    <div class="panel"><div class="panel-header"><span class="panel-title">Monthly sales — 2025 vs 2026 (all loaded months)</span></div>
+      <div class="chart-container" style="height:230px"><canvas id="cSalesU1" role="img" aria-label="Monthly sales">Sales.</canvas></div></div>
+    <div class="panel"><div class="panel-header"><span class="panel-title">Monthly units — 2025 vs 2026 (all loaded months)</span></div>
+      <div class="chart-container" style="height:230px"><canvas id="cSalesU2" role="img" aria-label="Monthly units">Units.</canvas></div></div>
+  </div>
+  <div class="panel"><div class="panel-header"><span class="panel-title">Month by month</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Month</th><th style="text-align:right">Sales 2025</th><th style="text-align:right">Sales 2026</th><th style="text-align:right">Sales YoY</th><th style="text-align:right">Units 2025</th><th style="text-align:right">Units 2026</th><th style="text-align:right">Units YoY</th></tr></thead>
+      <tbody>${tableRows}</tbody>
+    </table></div></div>
+  ${marketPanel}
+  ${latestBiz ? `<div class="panel"><div class="panel-header"><span class="panel-title">Daily sales — ${latestBiz.period}</span></div>
+    <div class="chart-container" style="height:190px"><canvas id="cSalesUD" role="img" aria-label="Daily sales">Daily.</canvas></div></div>` : ''}`;
+
+  setTimeout(() => {
+    const labels = monthRows.map(r=>r.mon);
+    const opts = pfx => ({responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:11},boxWidth:12}}},
+      scales:{y:{ticks:{callback:v=>pfx+(v>=1000?(v/1000).toFixed(0)+'k':v),font:{size:10}},grid:{color:'rgba(0,0,0,.03)'}},x:{ticks:{font:{size:10}},grid:{display:false}}}});
+    dc('cSalesU1'); dc('cSalesU2'); dc('cSalesUD');
+    mc('cSalesU1',{type:'bar',data:{labels,datasets:[
+      {label:'2025',data:monthRows.map(r=>r.s25||null),backgroundColor:'#9CA3AF55',borderColor:'#9CA3AF',borderWidth:1,borderRadius:3},
+      {label:'2026',data:monthRows.map(r=>r.s26||null),backgroundColor:'#4F46E5AA',borderColor:'#4F46E5',borderWidth:1,borderRadius:3}]},options:opts(sym)});
+    mc('cSalesU2',{type:'line',data:{labels,datasets:[
+      {label:'2025',data:monthRows.map(r=>r.u25||null),borderColor:'#9CA3AF',borderDash:[5,3],tension:.3,pointRadius:4,fill:false},
+      {label:'2026',data:monthRows.map(r=>r.u26||null),borderColor:'#059669',backgroundColor:'rgba(5,150,105,0.08)',tension:.3,pointRadius:4,fill:true}]},options:opts('')});
+    if (latestBiz && document.getElementById('cSalesUD')) {
+      const d = latestBiz.data.daily.slice(-31);
+      mc('cSalesUD',{type:'line',data:{labels:d.map(x=>x.date.slice(5,10)),datasets:[
+        {label:'2026',data:d.map(x=>x.s26),borderColor:'#4F46E5',backgroundColor:'#4F46E510',fill:true,tension:.3,pointRadius:2},
+        {label:'2025',data:d.map(x=>x.s25),borderColor:'#9CA3AF',borderDash:[4,3],tension:.3,pointRadius:2}]},
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:10},boxWidth:10}}},scales:{y:{ticks:{callback:v=>sym+v,font:{size:9}}},x:{ticks:{font:{size:9},maxTicksLimit:14}}}}});
+    }
+  }, 60);
+}
+
+function renderProductsUnified(cc, c, allRecs) {
+  const mktSel = document.getElementById('filterMarket')?.value || 'all';
+  const perSel = document.getElementById('filterPeriod')?.value || 'all';
+  const prod = allRecs.filter(r=>r.type==='product_csv'&&r.data&&r.data.parents);
+  const p26 = prod.filter(r=>r.period.endsWith('2026') && periodMatchSel(r.period, perSel));
+  if (!p26.length) { cc.innerHTML = emptyPanel('No product data','Upload Business Report CSVs for '+c.display+' (or pick another period).'); return; }
+  const monOf = p => p.split(' ')[0];
+  // Like-for-like: a 2025 record is used only if the same market + month exists in 2026 view
+  const keys26 = new Set(p26.map(r=>r.market+'|'+monOf(r.period)));
+  const p25 = prod.filter(r=>r.period.endsWith('2025') && keys26.has(r.market+'|'+monOf(r.period)));
+  const mkts = [...new Set(p26.map(r=>r.market))];
+  const single = mkts.length === 1;
+  const sym = fxActive() ? '$' : (single ? (CURRENCY_SYMBOL[getMarketCurrency(mkts[0])]||'$') : '$');
+  const fmt = v => (v<0?'-':'')+sym+Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const curs = new Set(mkts.map(m=>getMarketCurrency(m)));
+  const fxNote = (!single && !fxActive() && curs.size>1)
+    ? '<div class="notice notice-warn">Revenue is added up across different currencies. Turn on the 💱 FX button (top bar) to convert everything to USD.</div>' : '';
+
+  // Aggregate by child ASIN (fallback SKU) across all records and markets
+  const aggregate = recs => {
+    const map = {};
+    recs.forEach(r => (r.data.parents||[]).forEach(p => (p.children||[]).forEach(ch => {
+      const key = ch.child || ch.sku; if (!key) return;
+      const o = map[key] || (map[key] = {key, child:ch.child||'', sku:ch.sku||'', title:ch.title||'', parent:p.parent, parentTitle:p.title, units:0, b2b:0, sales:0, sessions:0, uw:0, bw:0});
+      o.units += ch.units||0; o.b2b += ch.units_b2b||0; o.sales += toUSD(ch.sales||0, r.market); o.sessions += ch.sessions||0;
+      o.uw += (ch.usp||0)*(ch.sessions||0); o.bw += (ch.buy_box||0)*(ch.sessions||0);
+      if (ch.sku && !o.sku) o.sku = ch.sku;
+      if (ch.title && !o.title) o.title = ch.title;
+    })));
+    return map;
+  };
+  const m26 = aggregate(p26), m25 = aggregate(p25);
+  const allKeys = [...new Set([...Object.keys(m26), ...Object.keys(m25)])];
+
+  const pm = {};
+  allKeys.forEach(k => {
+    const a = m26[k], b = m25[k], ref = a || b;
+    if (!ref.parent) return;
+    const g = pm[ref.parent] || (pm[ref.parent] = {parent:ref.parent, title:ref.parentTitle||ref.parent, u26:0,u25:0,s26:0,s25:0,se26:0,se25:0,b26:0,uw:0,bw:0,keys:[]});
+    if (a) { g.u26+=a.units; g.s26+=a.sales; g.se26+=a.sessions; g.b26+=a.b2b; g.uw+=a.uw; g.bw+=a.bw; }
+    if (b) { g.u25+=b.units; g.s25+=b.sales; g.se25+=b.sessions; }
+    g.keys.push(k);
+  });
+  const parents = Object.values(pm).sort((x,y)=>(y.u26-x.u26)||(y.u25-x.u25));
+  const TOT = parents.reduce((t,p)=>({u26:t.u26+p.u26,u25:t.u25+p.u25,s26:t.s26+p.s26,s25:t.s25+p.s25,se26:t.se26+p.se26,se25:t.se25+p.se25,b26:t.b26+p.b26,uw:t.uw+p.uw,bw:t.bw+p.bw}),{u26:0,u25:0,s26:0,s25:0,se26:0,se25:0,b26:0,uw:0,bw:0});
+  const newCount  = allKeys.filter(k=>(m26[k]&&m26[k].units>0)&&!(m25[k]&&m25[k].units>0)).length;
+  const dropCount = allKeys.filter(k=>(m25[k]&&m25[k].units>0)&&!(m26[k]&&m26[k].units>0)).length;
+
+  if (!A.puOpen)  A.puOpen = new Set();
+  if (!A.puLevel) A.puLevel = 'parent';
+  const chipC = v => v>=15?'chip-green':v>=5?'chip-amber':'chip-red';
+  const bbC   = v => v>=99?'chip-green':v>=95?'chip-amber':'chip-red';
+  const badge = (u26,u25) => (u26>0&&!(u25>0)) ? '<span class="chip chip-green" style="font-size:9px;margin-left:5px">NEW</span>'
+                           : (u25>0&&!(u26>0)) ? '<span class="chip chip-red" style="font-size:9px;margin-left:5px">DROPPED</span>' : '';
+
+  const numCells = (u25,u26,s25,s26,se25,se26,usp,bb) => `
+    <td style="text-align:right;color:var(--muted)">${u25?fn(u25):'—'}</td>
+    <td style="text-align:right;font-weight:600">${u26?fn(u26):'—'}</td>
+    <td style="text-align:right">${yoyChg(u26,u25)}</td>
+    <td style="text-align:right;color:var(--muted)">${s25?fmt(s25):'—'}</td>
+    <td style="text-align:right;font-weight:600">${s26?fmt(s26):'—'}</td>
+    <td style="text-align:right">${yoyChg(s26,s25)}</td>
+    <td style="text-align:right;color:var(--muted)">${se25?fn(se25):'—'}</td>
+    <td style="text-align:right">${se26?fn(se26):'—'}</td>
+    ${single ? (usp==null ? '<td style="text-align:right">—</td><td style="text-align:right">—</td>'
+      : `<td style="text-align:right"><span class="chip ${chipC(usp)}">${usp.toFixed(1)}%</span></td><td style="text-align:right"><span class="chip ${bbC(bb)}">${bb.toFixed(1)}%</span></td>`) : ''}`;
+
+  const wavg = (w, s) => s ? w/s : 0;
+
+  function buildParentRows() {
+    let h = '';
+    parents.forEach(p => {
+      const open = A.puOpen.has(p.parent);
+      h += `<tr class="row-parent${open?' open':''}" onclick="togglePU('${escH(p.parent)}')">
+        <td><span class="expand-btn">${open?'−':'+'}</span></td>
+        <td><div class="text-clip" title="${escH(p.title)}">${escH(p.title)}${badge(p.u26,p.u25)}</div>
+          <span class="asin-tag">${escH(p.parent)}</span> <span style="font-size:10px;color:var(--faint)">${p.keys.length} SKUs</span></td>
+        ${numCells(p.u25,p.u26,p.s25,p.s26,p.se25,p.se26,wavg(p.uw,p.se26),wavg(p.bw,p.se26))}</tr>`;
+      if (open) {
+        [...p.keys].sort((a,b)=>((m26[b]||{units:0}).units)-((m26[a]||{units:0}).units)).forEach(k => {
+          const a = m26[k], b = m25[k], ct = a || b;
+          h += `<tr class="row-child"><td></td>
+            <td><div class="text-clip" title="${escH(ct.title)}">${escH(ct.title)}${badge(a?a.units:0,b?b.units:0)}</div>
+              <span class="asin-tag">${escH(ct.child)}</span> <span class="sku-tag">${escH(ct.sku)}</span></td>
+            ${numCells(b?b.units:0,a?a.units:0,b?b.sales:0,a?a.sales:0,b?b.sessions:0,a?a.sessions:0,a?wavg(a.uw,a.sessions):0,a?wavg(a.bw,a.sessions):0)}</tr>`;
+        });
+      }
+    });
+    h += `<tr class="row-total"><td></td><td>${parents.length} parents / ${allKeys.length} SKUs</td>
+      ${numCells(TOT.u25,TOT.u26,TOT.s25,TOT.s26,TOT.se25,TOT.se26,single?wavg(TOT.uw,TOT.se26):null,single?wavg(TOT.bw,TOT.se26):null)}</tr>`;
+    return h;
+  }
+
+  function buildChildRows() {
+    const keys = [...allKeys].sort((x,y)=>(((m26[y]||{units:0}).units)-((m26[x]||{units:0}).units))||(((m25[y]||{units:0}).units)-((m25[x]||{units:0}).units)));
+    let h = '';
+    keys.forEach(k => {
+      const a = m26[k], b = m25[k], ct = a || b;
+      h += `<tr>
+        <td><div class="text-clip" title="${escH(ct.title)}">${escH(ct.title)}${badge(a?a.units:0,b?b.units:0)}</div>
+          <span class="asin-tag">${escH(ct.child)}</span> <span class="sku-tag">${escH(ct.sku)}</span></td>
+        <td><span class="asin-tag">${escH(ct.parent)}</span></td>
+        ${numCells(b?b.units:0,a?a.units:0,b?b.sales:0,a?a.sales:0,b?b.sessions:0,a?a.sessions:0,a?wavg(a.uw,a.sessions):0,a?wavg(a.bw,a.sessions):0)}</tr>`;
+    });
+    h += `<tr class="row-total"><td>${keys.length} SKUs</td><td>—</td>
+      ${numCells(TOT.u25,TOT.u26,TOT.s25,TOT.s26,TOT.se25,TOT.se26,single?wavg(TOT.uw,TOT.se26):null,single?wavg(TOT.bw,TOT.se26):null)}</tr>`;
+    return h;
+  }
+
+  const th = arr => arr.map(x=>`<th class="sortable" onclick="sortTable(this)" style="text-align:right">${x}</th>`).join('');
+  const numHdr = ['Units 2025','Units 2026','Units YoY','Revenue 2025','Revenue 2026','Revenue YoY','Sessions 2025','Sessions 2026'].concat(single?['Conv. 2026','Buy box 2026']:[]);
+  const headParent = '<tr><th style="width:18px"></th><th class="sortable" onclick="sortTable(this)">Product / ASIN</th>'+th(numHdr)+'</tr>';
+  const headChild  = '<tr><th class="sortable" onclick="sortTable(this)">SKU / Child ASIN</th><th class="sortable" onclick="sortTable(this)">Parent ASIN</th>'+th(numHdr)+'</tr>';
+
+  window.togglePU = pid => {
+    if (A.puOpen.has(pid)) A.puOpen.delete(pid); else A.puOpen.add(pid);
+    const tb = document.getElementById('puBody'); if (tb) tb.innerHTML = buildParentRows();
+  };
+  window.setPULevel = lvl => { A.puLevel = lvl; renderProductsUnified(cc, c, allRecs); };
+
+  const lv = A.puLevel;
+  const tgl = (id,label) => `<button onclick="setPULevel('${id}')" style="padding:0 12px;height:26px;font-size:11px;border:none;background:${lv===id?'#4F46E5':'#fff'};color:${lv===id?'#fff':'#6B7280'};cursor:pointer;font-weight:${lv===id?'600':'400'}">${label}</button>`;
+  const monthsInView = [...new Set(p26.map(r=>monOf(r.period)))].length;
+
+  cc.innerHTML = `
+  ${fxNote}
+  <div class="kpi-grid">
+    <div class="kpi-card green"><div class="kpi-label">Units 2026</div><div class="kpi-value">${fn(TOT.u26)}</div><div class="kpi-sub">vs ${fn(TOT.u25)} in 2025 &nbsp;${yoyChg(TOT.u26,TOT.u25)}</div></div>
+    <div class="kpi-card blue"><div class="kpi-label">Revenue 2026</div><div class="kpi-value">${fmt(TOT.s26)}</div><div class="kpi-sub">vs ${fmt(TOT.s25)} in 2025 &nbsp;${yoyChg(TOT.s26,TOT.s25)}</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">Sessions 2026</div><div class="kpi-value">${fn(TOT.se26)}</div><div class="kpi-sub">${single?('Conv. '+(TOT.se26?(TOT.u26/TOT.se26*100).toFixed(1):0)+'%'):('vs '+fn(TOT.se25)+' in 2025')}</div></div>
+    <div class="kpi-card violet"><div class="kpi-label">B2B units 2026</div><div class="kpi-value">${fn(TOT.b26)}</div><div class="kpi-sub">${TOT.u26?(TOT.b26/TOT.u26*100).toFixed(1):0}% of total</div></div>
+    <div class="kpi-card"><div class="kpi-label">Parents / SKUs</div><div class="kpi-value">${parents.length}/${allKeys.length}</div><div class="kpi-sub">${newCount} new · ${dropCount} dropped</div></div>
+  </div>
+  <div class="row-2">
+    <div class="panel"><div class="panel-header"><span class="panel-title">Units by parent — top 10</span></div>
+      <div class="chart-container" style="height:250px"><canvas id="cPU1" role="img" aria-label="Units by parent">Units.</canvas></div></div>
+    <div class="panel"><div class="panel-header"><span class="panel-title">Revenue by parent — top 10</span></div>
+      <div class="chart-container" style="height:250px"><canvas id="cPU2" role="img" aria-label="Revenue by parent">Revenue.</canvas></div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Products — 2026 vs 2025 (${monthsInView} month${monthsInView>1?'s':''} in view, same months compared) · Business Report CSV</span>
+      <div style="display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden">${tgl('parent','Parent')}${tgl('child','SKU Level')}</div>
+    </div>
+    <div class="table-wrap" style="padding-top:6px"><table>
+      <thead>${lv==='child'?headChild:headParent}</thead>
+      <tbody id="puBody">${lv==='child'?buildChildRows():buildParentRows()}</tbody>
+    </table></div>
+  </div>`;
+
+  setTimeout(() => {
+    const sh = s => s.length>22 ? s.slice(0,22)+'…' : s;
+    const t10u = parents.slice(0,10);
+    const t10r = [...parents].sort((a,b)=>b.s26-a.s26).slice(0,10);
+    const o = (cb) => ({indexAxis:'y',responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{font:{size:10},boxWidth:10}}},scales:{x:{ticks:{callback:cb,font:{size:10}}},y:{ticks:{font:{size:10}}}}});
+    dc('cPU1'); dc('cPU2');
+    mc('cPU1',{type:'bar',data:{labels:t10u.map(p=>sh(p.title)),datasets:[
+      {label:'2025',data:t10u.map(p=>p.u25),backgroundColor:'#9CA3AF88',borderRadius:3},
+      {label:'2026',data:t10u.map(p=>p.u26),backgroundColor:'#4F46E5BB',borderRadius:3}]},options:o(v=>v)});
+    mc('cPU2',{type:'bar',data:{labels:t10r.map(p=>sh(p.title)),datasets:[
+      {label:'2025',data:t10r.map(p=>+p.s25.toFixed(0)),backgroundColor:'#9CA3AF88',borderRadius:3},
+      {label:'2026',data:t10r.map(p=>+p.s26.toFixed(0)),backgroundColor:'#05966988',borderColor:'#059669',borderWidth:1,borderRadius:3}]},options:o(v=>sym+(v>=1000?(v/1000).toFixed(0)+'k':v))});
+  }, 60);
 }
 
 function renderOverview(cc, c, recs, bizR, prodR) {
